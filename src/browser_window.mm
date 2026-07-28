@@ -12,6 +12,7 @@
 #import <AppKit/AppKit.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace briviba {
 namespace {
@@ -29,6 +30,7 @@ constexpr CGFloat kWebViewLeading = 96.0;
 constexpr CGFloat kWebViewTop = 76.0;
 constexpr CGFloat kWebViewTrailing = 16.0;
 constexpr CGFloat kWebViewBottom = 18.0;
+constexpr double kColorEpsilon = 0.002;
 
 NSRect InitialWindowFrame() {
   NSScreen* screen = [NSScreen mainScreen];
@@ -51,6 +53,8 @@ NSWindowStyleMask WindowStyleMask() {
 class BrowserWindow::Impl {
  public:
   Impl() {
+    [NSWindow setAllowsAutomaticWindowTabbing:NO];
+
     window_ = [[NSWindow alloc] initWithContentRect:InitialWindowFrame()
                                           styleMask:WindowStyleMask()
                                             backing:NSBackingStoreBuffered
@@ -146,6 +150,14 @@ class BrowserWindow::Impl {
   }
 
   void ApplyPageColor(Tab::PageColor color) {
+    if (std::abs(last_page_color_.red - color.red) < kColorEpsilon &&
+        std::abs(last_page_color_.green - color.green) < kColorEpsilon &&
+        std::abs(last_page_color_.blue - color.blue) < kColorEpsilon &&
+        std::abs(last_page_color_.alpha - color.alpha) < kColorEpsilon) {
+      return;
+    }
+
+    last_page_color_ = color;
     NSColor* page_color = [NSColor colorWithSRGBRed:color.red
                                              green:color.green
                                               blue:color.blue
@@ -163,6 +175,7 @@ class BrowserWindow::Impl {
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
+  Tab::PageColor last_page_color_;
   bool secure_mode_ = false;
 };
 
