@@ -25,6 +25,7 @@ class Toolbar {
   void SetBackAction(Action action);
   void SetForwardAction(Action action);
   void SetReloadAction(Action action);
+  void SetMenuAction(Action action);
   void SetAddressSubmitAction(AddressSubmitAction action);
   void SetAddressText(const std::string& text);
   void SetNavigationState(bool can_go_back, bool can_go_forward);

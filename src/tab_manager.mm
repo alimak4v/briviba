@@ -51,7 +51,8 @@ class TabManager::Impl {
   }
 
   void CreateTab() {
-    tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(std::string()), std::string()});
+    tabs_.push_back(
+        ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(), browsing_mode_});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     EmitDefaultPageColor();
@@ -59,7 +60,8 @@ class TabManager::Impl {
 
   bool LoadUrl(const std::string& text) {
     const std::string top_level_site = TopLevelSiteFromInput(text);
-    if (!top_level_site.empty() && ActiveTopLevelSite() != top_level_site) {
+    if (!top_level_site.empty() &&
+        (ActiveTopLevelSite() != top_level_site || ActiveBrowsingMode() != browsing_mode_)) {
       ReplaceActiveTabForTopLevelSite(top_level_site);
     }
 
@@ -88,6 +90,14 @@ class TabManager::Impl {
     }
   }
 
+  void SetBrowsingMode(BrowsingMode mode) {
+    if (browsing_mode_ == mode) {
+      return;
+    }
+    browsing_mode_ = mode;
+    CreateTab();
+  }
+
   void SetNavigationStateCallback(NavigationStateCallback callback) {
     navigation_state_callback_ = std::move(callback);
     for (auto& tab : tabs_) {
@@ -109,6 +119,7 @@ class TabManager::Impl {
   struct ManagedTab {
     std::unique_ptr<Tab> tab;
     std::string top_level_site;
+    BrowsingMode browsing_mode = BrowsingMode::kNormal;
   };
 
   Tab* ActiveTab() {
@@ -125,10 +136,20 @@ class TabManager::Impl {
     return tabs_[active_index_].top_level_site;
   }
 
+  BrowsingMode ActiveBrowsingMode() const {
+    if (tabs_.empty() || active_index_ >= tabs_.size()) {
+      return BrowsingMode::kNormal;
+    }
+    return tabs_[active_index_].browsing_mode;
+  }
+
   std::unique_ptr<Tab> CreateTabForTopLevelSite(const std::string& top_level_site) {
-    WKWebsiteDataStore* data_store =
-        top_level_site.empty() ? cookie_manager_.NormalWebsiteDataStore()
-                               : cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
+    WKWebsiteDataStore* data_store = cookie_manager_.NormalWebsiteDataStore();
+    if (browsing_mode_ == BrowsingMode::kSecure) {
+      data_store = cookie_manager_.SecureWebsiteDataStore();
+    } else if (!top_level_site.empty()) {
+      data_store = cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
+    }
     auto tab = std::make_unique<Tab>(data_store);
     tab->SetNavigationStateCallback(navigation_state_callback_);
     tab->SetPageColorCallback(page_color_callback_);
@@ -136,11 +157,16 @@ class TabManager::Impl {
   }
 
   void ReplaceActiveTabForTopLevelSite(const std::string& top_level_site) {
+    ManagedTab managed_tab{
+        CreateTabForTopLevelSite(top_level_site),
+        top_level_site,
+        browsing_mode_,
+    };
     if (tabs_.empty()) {
-      tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(top_level_site), top_level_site});
+      tabs_.push_back(std::move(managed_tab));
       active_index_ = 0;
     } else {
-      tabs_[active_index_] = ManagedTab{CreateTabForTopLevelSite(top_level_site), top_level_site};
+      tabs_[active_index_] = std::move(managed_tab);
     }
     MountActiveTab();
   }
@@ -174,6 +200,7 @@ class TabManager::Impl {
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
   CookieManager& cookie_manager_;
+  BrowsingMode browsing_mode_ = BrowsingMode::kNormal;
   std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
   NSView* container_view_ = nil;
@@ -206,6 +233,10 @@ void TabManager::GoForward() {
 
 void TabManager::Reload() {
   impl_->Reload();
+}
+
+void TabManager::SetBrowsingMode(BrowsingMode mode) {
+  impl_->SetBrowsingMode(mode);
 }
 
 void TabManager::SetNavigationStateCallback(NavigationStateCallback callback) {

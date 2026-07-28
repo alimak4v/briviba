@@ -16,6 +16,8 @@ class CookieManager;
 
 class TabManager {
  public:
+  enum class BrowsingMode { kNormal, kSecure };
+
   using NavigationStateCallback = Tab::NavigationStateCallback;
   using PageColorCallback = Tab::PageColorCallback;
 
@@ -31,6 +33,7 @@ class TabManager {
   void GoBack();
   void GoForward();
   void Reload();
+  void SetBrowsingMode(BrowsingMode mode);
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
 

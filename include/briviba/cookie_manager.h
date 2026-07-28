@@ -23,6 +23,7 @@ class CookieManager {
 
 #ifdef __OBJC__
   WKWebsiteDataStore* NormalWebsiteDataStore() const;
+  WKWebsiteDataStore* SecureWebsiteDataStore() const;
   WKWebsiteDataStore* WebsiteDataStoreForTopLevelSite(const std::string& top_level_site);
 #endif
 

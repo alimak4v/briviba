@@ -68,6 +68,7 @@ class BrowserWindow::Impl {
     toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
     toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
     toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
+    toolbar_.SetMenuAction([this] { ToggleBrowsingMode(); });
     toolbar_.SetAddressSubmitAction([this](const std::string& text) {
       if (tab_manager_.LoadUrl(text)) {
         toolbar_.SetAddressText(text);
@@ -77,7 +78,9 @@ class BrowserWindow::Impl {
         [this](bool can_go_back, bool can_go_forward, const std::string& url) {
           toolbar_.SetNavigationState(can_go_back, can_go_forward);
           toolbar_.SetAddressText(url);
-          history_manager_.RecordVisit(url);
+          if (!secure_mode_) {
+            history_manager_.RecordVisit(url);
+          }
         });
     tab_manager_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
     tab_manager_.CreateInitialTab();
@@ -114,6 +117,12 @@ class BrowserWindow::Impl {
   void Show() { [window_ makeKeyAndOrderFront:nil]; }
 
  private:
+  void ToggleBrowsingMode() {
+    secure_mode_ = !secure_mode_;
+    tab_manager_.SetBrowsingMode(secure_mode_ ? TabManager::BrowsingMode::kSecure
+                                              : TabManager::BrowsingMode::kNormal);
+  }
+
   void ApplyPageColor(Tab::PageColor color) {
     NSColor* page_color = [NSColor colorWithSRGBRed:color.red
                                              green:color.green
@@ -129,6 +138,7 @@ class BrowserWindow::Impl {
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
+  bool secure_mode_ = false;
 };
 
 BrowserWindow::BrowserWindow() : impl_(std::make_unique<Impl>()) {}

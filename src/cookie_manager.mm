@@ -66,6 +66,13 @@ class CookieManager::Impl {
 
   WKWebsiteDataStore* NormalWebsiteDataStore() const { return normal_data_store_; }
 
+  WKWebsiteDataStore* SecureWebsiteDataStore() const {
+    if (secure_data_store_ == nil) {
+      secure_data_store_ = [WKWebsiteDataStore nonPersistentDataStore];
+    }
+    return secure_data_store_;
+  }
+
   WKWebsiteDataStore* WebsiteDataStoreForTopLevelSite(const std::string& top_level_site) {
     if (top_level_site.empty() || database_ == nullptr) {
       return normal_data_store_;
@@ -144,6 +151,7 @@ class CookieManager::Impl {
 
   std::filesystem::path database_path_;
   std::unique_ptr<sqlite3, DatabaseDeleter> database_;
+  mutable WKWebsiteDataStore* secure_data_store_ = nil;
   WKWebsiteDataStore* normal_data_store_ = nil;
 };
 
@@ -159,6 +167,10 @@ std::filesystem::path CookieManager::DefaultDatabasePath() {
 
 WKWebsiteDataStore* CookieManager::NormalWebsiteDataStore() const {
   return impl_->NormalWebsiteDataStore();
+}
+
+WKWebsiteDataStore* CookieManager::SecureWebsiteDataStore() const {
+  return impl_->SecureWebsiteDataStore();
 }
 
 WKWebsiteDataStore* CookieManager::WebsiteDataStoreForTopLevelSite(

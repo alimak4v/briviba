@@ -12,11 +12,13 @@
   briviba::Toolbar::Action back_action;
   briviba::Toolbar::Action forward_action;
   briviba::Toolbar::Action reload_action;
+  briviba::Toolbar::Action menu_action;
   briviba::Toolbar::AddressSubmitAction address_submit_action;
 }
 - (void)goBack:(id)sender;
 - (void)goForward:(id)sender;
 - (void)reload:(id)sender;
+- (void)openMenu:(id)sender;
 - (void)submitAddress:(id)sender;
 @end
 
@@ -40,6 +42,13 @@
   (void)sender;
   if (reload_action) {
     reload_action();
+  }
+}
+
+- (void)openMenu:(id)sender {
+  (void)sender;
+  if (menu_action) {
+    menu_action();
   }
 }
 
@@ -113,7 +122,7 @@ class Toolbar::Impl {
     forward_button_ = CircularButton(@"chevron.right", @"Forward");
     reload_button_ = CircularButton(@"arrow.clockwise", @"Reload");
     address_field_ = AddressField();
-    NSButton* menu_button = CircularButton(@"ellipsis", @"Menu");
+    menu_button_ = CircularButton(@"ellipsis", @"Menu");
 
     [back_button_ setTarget:bridge_];
     [back_button_ setAction:@selector(goBack:)];
@@ -131,7 +140,10 @@ class Toolbar::Impl {
     [view_ addSubview:forward_button_];
     [view_ addSubview:reload_button_];
     [view_ addSubview:address_field_];
-    [view_ addSubview:menu_button];
+    [menu_button_ setTarget:bridge_];
+    [menu_button_ setAction:@selector(openMenu:)];
+
+    [view_ addSubview:menu_button_];
 
     [NSLayoutConstraint activateConstraints:@[
       [[view_ heightAnchor] constraintEqualToConstant:kToolbarHeight],
@@ -145,8 +157,8 @@ class Toolbar::Impl {
       [[reload_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
       [[address_field_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
       [[address_field_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
-      [[menu_button trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
-      [[menu_button centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
+      [[menu_button_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
+      [[menu_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
     ]];
   }
 
@@ -155,6 +167,8 @@ class Toolbar::Impl {
   void SetForwardAction(Action action) { bridge_->forward_action = std::move(action); }
 
   void SetReloadAction(Action action) { bridge_->reload_action = std::move(action); }
+
+  void SetMenuAction(Action action) { bridge_->menu_action = std::move(action); }
 
   void SetAddressSubmitAction(AddressSubmitAction action) {
     bridge_->address_submit_action = std::move(action);
@@ -176,6 +190,7 @@ class Toolbar::Impl {
   NSButton* back_button_ = nil;
   NSButton* forward_button_ = nil;
   NSButton* reload_button_ = nil;
+  NSButton* menu_button_ = nil;
   NSSearchField* address_field_ = nil;
   NSView* view_ = nil;
 };
@@ -194,6 +209,10 @@ void Toolbar::SetForwardAction(Action action) {
 
 void Toolbar::SetReloadAction(Action action) {
   impl_->SetReloadAction(std::move(action));
+}
+
+void Toolbar::SetMenuAction(Action action) {
+  impl_->SetMenuAction(std::move(action));
 }
 
 void Toolbar::SetAddressSubmitAction(AddressSubmitAction action) {
