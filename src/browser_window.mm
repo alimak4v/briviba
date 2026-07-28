@@ -1,5 +1,6 @@
 #include "briviba/browser_window.h"
 
+#include "briviba/bookmark_manager.h"
 #include "briviba/cookie_manager.h"
 #include "briviba/history_manager.h"
 #include "briviba/sidebar.h"
@@ -68,6 +69,7 @@ class BrowserWindow::Impl {
     toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
     toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
     toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
+    toolbar_.SetBookmarkAction([this] { AddCurrentBookmark(); });
     toolbar_.SetMenuAction([this] { ToggleBrowsingMode(); });
     toolbar_.SetAddressSubmitAction([this](const std::string& text) {
       if (tab_manager_.LoadUrl(text)) {
@@ -123,6 +125,8 @@ class BrowserWindow::Impl {
                                               : TabManager::BrowsingMode::kNormal);
   }
 
+  void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }
+
   void ApplyPageColor(Tab::PageColor color) {
     NSColor* page_color = [NSColor colorWithSRGBRed:color.red
                                              green:color.green
@@ -131,6 +135,7 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[page_color CGColor]];
   }
 
+  BookmarkManager bookmark_manager_{BookmarkManager::DefaultDatabasePath()};
   HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
   CookieManager cookie_manager_{CookieManager::DefaultDatabasePath()};
   Sidebar sidebar_;

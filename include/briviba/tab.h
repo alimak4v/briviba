@@ -34,6 +34,7 @@ class Tab {
   Tab& operator=(const Tab&) = delete;
 
   bool LoadUrl(const std::string& text);
+  std::string CurrentUrl() const;
   void GoBack();
   void GoForward();
   void Reload();

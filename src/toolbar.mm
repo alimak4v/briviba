@@ -12,13 +12,16 @@
   briviba::Toolbar::Action back_action;
   briviba::Toolbar::Action forward_action;
   briviba::Toolbar::Action reload_action;
+  briviba::Toolbar::Action bookmark_action;
   briviba::Toolbar::Action menu_action;
   briviba::Toolbar::AddressSubmitAction address_submit_action;
 }
 - (void)goBack:(id)sender;
 - (void)goForward:(id)sender;
 - (void)reload:(id)sender;
+- (void)addBookmark:(id)sender;
 - (void)openMenu:(id)sender;
+- (void)toggleSecureMode:(id)sender;
 - (void)submitAddress:(id)sender;
 @end
 
@@ -45,7 +48,35 @@
   }
 }
 
+- (void)addBookmark:(id)sender {
+  (void)sender;
+  if (bookmark_action) {
+    bookmark_action();
+  }
+}
+
 - (void)openMenu:(id)sender {
+  NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Briviba"];
+  NSMenuItem* bookmark_item = [[NSMenuItem alloc] initWithTitle:@"Add Bookmark"
+                                                         action:@selector(addBookmark:)
+                                                  keyEquivalent:@""];
+  [bookmark_item setTarget:self];
+  [bookmark_item setEnabled:bookmark_action != nullptr];
+  [menu addItem:bookmark_item];
+
+  NSMenuItem* secure_item = [[NSMenuItem alloc] initWithTitle:@"Toggle Secure Mode"
+                                                       action:@selector(toggleSecureMode:)
+                                                keyEquivalent:@""];
+  [secure_item setTarget:self];
+  [secure_item setEnabled:menu_action != nullptr];
+  [menu addItem:secure_item];
+
+  if ([sender isKindOfClass:[NSView class]]) {
+    [NSMenu popUpContextMenu:menu withEvent:[NSApp currentEvent] forView:(NSView*)sender];
+  }
+}
+
+- (void)toggleSecureMode:(id)sender {
   (void)sender;
   if (menu_action) {
     menu_action();
@@ -168,6 +199,8 @@ class Toolbar::Impl {
 
   void SetReloadAction(Action action) { bridge_->reload_action = std::move(action); }
 
+  void SetBookmarkAction(Action action) { bridge_->bookmark_action = std::move(action); }
+
   void SetMenuAction(Action action) { bridge_->menu_action = std::move(action); }
 
   void SetAddressSubmitAction(AddressSubmitAction action) {
@@ -209,6 +242,10 @@ void Toolbar::SetForwardAction(Action action) {
 
 void Toolbar::SetReloadAction(Action action) {
   impl_->SetReloadAction(std::move(action));
+}
+
+void Toolbar::SetBookmarkAction(Action action) {
+  impl_->SetBookmarkAction(std::move(action));
 }
 
 void Toolbar::SetMenuAction(Action action) {

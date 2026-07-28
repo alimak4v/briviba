@@ -151,6 +151,13 @@ class Tab::Impl {
     return true;
   }
 
+  std::string CurrentUrl() const {
+    NSURL* url = [web_view_ URL];
+    NSString* absolute_string = url == nil ? @"" : [url absoluteString];
+    const char* utf8 = [absolute_string UTF8String];
+    return utf8 == nullptr ? std::string() : std::string(utf8);
+  }
+
   void GoBack() {
     if ([web_view_ canGoBack]) {
       [web_view_ goBack];
@@ -195,6 +202,10 @@ Tab::~Tab() = default;
 
 bool Tab::LoadUrl(const std::string& text) {
   return impl_->LoadUrl(text);
+}
+
+std::string Tab::CurrentUrl() const {
+  return impl_->CurrentUrl();
 }
 
 void Tab::GoBack() {

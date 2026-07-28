@@ -30,6 +30,7 @@ class TabManager {
   void CreateInitialTab();
   void CreateTab();
   bool LoadUrl(const std::string& text);
+  std::string CurrentUrl() const;
   void GoBack();
   void GoForward();
   void Reload();
