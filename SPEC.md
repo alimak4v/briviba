@@ -1,133 +1,149 @@
-# BRIVIBA SPECIFICATION v1.0
+# BRIVIBA — Software Specification v1.0
 
-This file is the single source of truth for BRIVIBA product requirements.
-If any other document conflicts with this file, this file wins.
+> Single Source of Truth.
+>
+> Любой код обязан соответствовать этому документу.
 
-## 1. Project Goal
+---
 
-Create a macOS browser focused on:
+# 1. Project
 
-- minimal memory usage;
-- minimal energy usage;
-- fastest possible startup;
-- modern minimalist interface;
-- full isolation of third-party website state;
-- no unnecessary features.
+## Название
 
-The first version supports macOS only.
+**Briviba**
 
-BRIVIBA must use Apple native APIs only.
+## Цель
 
-## 2. Technology Stack
+Создать максимально быстрый, минималистичный и энергоэффективный браузер для macOS.
 
-### Language
+Основные принципы:
+
+- максимально нативный
+- минимальное потребление памяти
+- минимальное энергопотребление
+- современный дизайн
+- privacy-first
+- отсутствие лишних функций
+
+Первая версия поддерживает **только macOS**.
+
+---
+
+# 2. Tech Stack
+
+## Язык
 
 - C++20
-- Objective-C++
-- Swift only for AppKit wrapper code
 
-### UI
+## UI
 
 - AppKit
-- Auto Layout
 - CALayer
 - CoreAnimation
-- SF Symbols
-- Liquid Glass
+- Auto Layout
 
-### Browser Engine
+## Browser
 
 - WebKit
 - WKWebView
 
-### Build
+## Build
 
 - CMake
 - Ninja
-- clang
+- Clang
 
-### Database
+## Database
 
-- SQLite
+SQLite
 
-### Storage
+## Storage
 
-- filesystem
-- mmap
+filesystem
 
-### Networking
+mmap
 
-- NSURLSession
-- Network.framework
+---
 
-## 3. Non-Functional Requirements
-
-- Application startup: less than 300 ms
-- New tab startup: less than 50 ms
-- Empty window RAM usage: less than 150 MB
-- Idle CPU: approximately 0%
-- Minimal application size
-- Maximum use of system libraries
-
-Forbidden:
+# 3. Запрещено использовать
 
 - Electron
 - Chromium
+- CEF
 - Qt
-- third-party UI frameworks
+- GTK
+- React
+- Vue
+- Web UI
 
-## 4. UI
+---
 
-The UI must match the reference render exactly.
+# 4. Интерфейс
 
-It must not be merely similar.
-It must not be only inspired by the render.
-It must match the render.
+Интерфейс должен совпадать с утвержденным рендером.
 
-Reference image:
+Не "примерно".
 
-- [docs/assets/BRIVIBA_UI_REFERENCE.jpeg](docs/assets/BRIVIBA_UI_REFERENCE.jpeg)
+Не "в стиле".
 
-Required elements:
+Именно совпадать.
 
-- left Liquid Glass dock;
-- rounded window and controls;
-- floating top address field;
-- separate Back, Forward, and Reload buttons;
-- separate right-side menu buttons;
-- top toolbar background automatically adopts the current page color;
-- page color is computed from the website DOM;
-- no additional toolbars;
-- no top tab strip;
-- no side menus except the left dock.
+## Левая панель
 
-All dimensions must scale proportionally.
+- Liquid Glass
+- фиксированная ширина
+- не меняет цвет
+- содержит вкладки
+- содержит кнопку новой вкладки
+- содержит настройки
 
-Detailed UI rules live in [docs/UI.md](docs/UI.md).
+## Верхняя панель
 
-## 5. Cookies And Site State
+Содержит
 
-BRIVIBA has exactly two browsing modes.
+- Back
+- Forward
+- Reload
+- Address Bar
+- Menu
 
-### Normal
+Кнопки отдельные.
 
-Normal mode is always used unless Secure mode is explicitly enabled.
+Общей панели нет.
 
-For each top-level site, BRIVIBA creates a separate storage area.
-For each embedded origin, BRIVIBA creates a separate partition.
+Фон совпадает с цветом страницы.
 
-Example:
+Цвет определяется автоматически.
 
-```text
+Sidebar никогда не меняет цвет.
+
+---
+
+# 5. Cookie Model
+
+Существует только два режима.
+
+---
+
+## Normal
+
+Используется по умолчанию.
+
+Каждый top-level сайт имеет собственный контейнер.
+
+Внутри контейнера каждый встроенный origin получает собственное независимое состояние.
+
+Например
+
 youtube.com
-    google.com
-    doubleclick.net
-    img.youtube.com
-```
 
-Each origin has independent state.
+- google.com
+- doubleclick.net
+- ytimg.com
 
-The following state must be isolated:
+Каждый имеет независимое состояние.
+
+Изолируются
 
 - Cookies
 - LocalStorage
@@ -136,150 +152,247 @@ The following state must be isolated:
 - Cache API
 - Service Workers
 - HTTP Cache
-- Network State
-- Authentication Cache
 
-### Secure
+---
 
-Secure mode works like Incognito.
+## Secure
 
-After the last Secure window closes, all Secure mode data is fully deleted.
-No Secure mode data may remain on disk.
+Работает как Incognito.
 
-## 6. Storage
+После закрытия последнего окна удаляется полностью.
 
-All persistent state is stored on disk.
+Не остается
 
-Only the current working set is loaded into RAM.
+- cookies
+- storage
+- cache
+- history
 
-When a tab closes, tab memory must be released.
+---
 
-## 7. Rendering
+# 6. Storage
 
-Each tab owns its own WKWebView.
+Все данные лежат на диске.
 
-When a tab closes, its WKWebView is destroyed.
+В RAM загружается только активная вкладка.
 
-Unused tabs are unloaded.
+После закрытия вкладки память освобождается.
 
-## 8. Architecture
+---
 
-The required high-level architecture is:
+# 7. Tabs
 
-```text
+Каждая вкладка имеет собственный WKWebView.
+
+После закрытия вкладки
+
+WebView уничтожается.
+
+Неиспользуемые вкладки выгружаются.
+
+---
+
+# 8. Производительность
+
+Запуск
+
+<300ms
+
+Новая вкладка
+
+<50ms
+
+Idle CPU
+
+≈0%
+
+Минимальное потребление памяти.
+
+---
+
+# 9. Архитектура
+
 Application
-    WindowManager
-        BrowserWindow
-            Toolbar
-            Sidebar
-            TabManager
-                Tab
-                    WKWebView
-            StorageManager
-            CookieManager
-            HistoryManager
-            BookmarkManager
-            DownloadManager
-            SettingsManager
-```
 
-Modules must not know each other's internals.
+- WindowManager
+    - BrowserWindow
+        - Sidebar
+        - Toolbar
+        - TabManager
+            - Tab
+                - WKWebView
+        - StorageManager
+        - CookieManager
+        - HistoryManager
+        - BookmarkManager
+        - DownloadManager
+        - SettingsManager
 
-Modules communicate only through interfaces.
+Все взаимодействие происходит через интерфейсы.
 
-Detailed architecture rules live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Никаких глобальных зависимостей.
 
-## 9. Repository Structure
+---
 
-The repository must use this structure:
+# 10. Структура проекта
 
 ```text
 briviba/
-    docs/
-    src/
-    include/
-    resources/
-    tests/
-    third_party/
-    CMakeLists.txt
-    README.md
-    LICENSE
+
+docs/
+
+src/
+
+include/
+
+resources/
+
+tests/
+
+third_party/
+
+CMakeLists.txt
+
+README.md
+
+LICENSE
 ```
 
-## 10. Coding Style
+---
 
-Required:
+# 11. Coding Style
 
-- Google C++ style
-- RAII
-- no global variables
-- no singletons
-- no raw `new` or `delete` outside smart-pointer implementation internals
-- const correctness everywhere
-- `constexpr` where possible
-- mandatory clang-format
+Google C++
 
-Detailed coding rules live in [docs/CODING_RULES.md](docs/CODING_RULES.md).
+RAII
 
-## 11. Git Workflow
+constexpr
 
-After each completed change:
+const correctness
 
-```sh
+std::unique_ptr
+
+std::shared_ptr
+
+clang-format
+
+Никаких Singleton.
+
+Никаких глобальных переменных.
+
+---
+
+# 12. Git Workflow
+
+После каждого законченного изменения
+
+```bash
 git add .
-git commit -m "<type>: message"
+git commit -m "<type>: <message>"
 git push
 ```
 
-Allowed commit types:
+Типы
 
-```text
-feat
-fix
-perf
-docs
-refactor
-test
-build
-style
+- feat
+- fix
+- docs
+- perf
+- refactor
+- build
+- style
+- test
+
+Запрещено объединять несколько крупных функций в один коммит.
+
+---
+
+# 13. Порядок разработки
+
+Codex обязан соблюдать последовательность.
+
+1. Создать структуру проекта.
+2. Настроить CMake.
+3. Создать AppKit приложение.
+4. Создать главное окно.
+5. Реализовать Sidebar.
+6. Реализовать Toolbar.
+7. Подключить WKWebView.
+8. Реализовать навигацию.
+9. Реализовать вкладки.
+10. Реализовать историю.
+11. Реализовать Cookie Storage.
+12. Реализовать Partition Storage.
+13. Реализовать Secure Mode.
+14. Реализовать Bookmarks.
+15. Реализовать Downloads.
+16. Реализовать Settings.
+17. Провести оптимизацию памяти.
+18. Провести оптимизацию CPU.
+19. Финальный рефакторинг.
+
+---
+
+# 14. Требования к каждому изменению
+
+Каждое изменение обязано:
+
+- компилироваться
+- проходить существующие тесты
+- не ломать архитектуру
+- соответствовать Coding Style
+- сопровождаться коммитом
+- сопровождаться git push
+
+Запрещается оставлять TODO вместо реализации.
+
+Запрещается писать заглушки.
+
+Запрещается переписывать уже работающий код без необходимости.
+
+Запрещается менять архитектуру без веской причины.
+
+---
+
+# 15. Definition of Done
+
+Функция считается завершенной только если
+
+- код компилируется
+- отсутствуют предупреждения
+- реализована полностью
+- протестирована
+- закоммичена
+- отправлена в GitHub
+
+После завершения каждой задачи Codex должен автоматически выполнить
+
+```bash
+git add .
+git commit -m "<type>: <message>"
+git push
 ```
 
-## 12. Development Order
+---
 
-Codex must follow this order:
+# 16. Главный принцип проекта
 
-1. Create project structure.
-2. Configure CMake.
-3. Configure AppKit.
-4. Create window.
-5. Add Liquid Glass sidebar.
-6. Add toolbar.
-7. Add WKWebView.
-8. Add URL loading.
-9. Add history.
-10. Add cookies.
-11. Add partition storage.
-12. Add Secure mode.
-13. Add bookmarks.
-14. Add downloads.
-15. Add settings.
+Briviba должен ощущаться как нативное приложение Apple.
 
-## 13. Rules For Codex
+Не копировать Chrome.
 
-Forbidden:
+Не копировать Safari.
 
-- changing architecture without necessity;
-- using third-party UI frameworks;
-- rewriting working subsystems without reason;
-- adding dependencies without explicit necessity;
-- writing TODOs instead of implementation;
-- creating stubs instead of working functionality;
-- violating the existing code style.
+Не копировать Arc.
 
-Every new feature must:
+Минимализм.
 
-- compile;
-- preserve existing behavior;
-- include a commit;
-- include a short README or CHANGELOG entry if it changes application behavior.
+Максимальная производительность.
 
+Максимальная плавность.
+
+Максимальная энергоэффективность.
+
+Минимум памяти.
+
+Никаких лишних функций.
