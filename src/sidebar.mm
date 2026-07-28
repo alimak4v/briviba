@@ -3,6 +3,26 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <utility>
+
+@interface BrivibaSidebarActionBridge : NSObject {
+ @public
+  briviba::Sidebar::Action new_tab_action;
+}
+- (void)newTab:(id)sender;
+@end
+
+@implementation BrivibaSidebarActionBridge
+
+- (void)newTab:(id)sender {
+  (void)sender;
+  if (new_tab_action) {
+    new_tab_action();
+  }
+}
+
+@end
+
 namespace briviba {
 namespace {
 
@@ -41,6 +61,8 @@ NSStackView* VerticalStack() {
 class Sidebar::Impl {
  public:
   Impl() {
+    bridge_ = [[BrivibaSidebarActionBridge alloc] init];
+
     view_ = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
     [view_ setMaterial:NSVisualEffectMaterialSidebar];
     [view_ setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
@@ -52,7 +74,10 @@ class Sidebar::Impl {
 
     NSStackView* top_stack = VerticalStack();
     [top_stack addArrangedSubview:IconButton(@"square.stack.3d.up", @"Tabs")];
-    [top_stack addArrangedSubview:IconButton(@"plus", @"New tab")];
+    new_tab_button_ = IconButton(@"plus", @"New tab");
+    [new_tab_button_ setTarget:bridge_];
+    [new_tab_button_ setAction:@selector(newTab:)];
+    [top_stack addArrangedSubview:new_tab_button_];
 
     NSStackView* bottom_stack = VerticalStack();
     [bottom_stack addArrangedSubview:IconButton(@"gearshape", @"Settings")];
@@ -69,15 +94,23 @@ class Sidebar::Impl {
     ]];
   }
 
+  void SetNewTabAction(Action action) { bridge_->new_tab_action = std::move(action); }
+
   NSView* NativeView() const { return view_; }
 
  private:
+  BrivibaSidebarActionBridge* bridge_ = nil;
+  NSButton* new_tab_button_ = nil;
   NSVisualEffectView* view_ = nil;
 };
 
 Sidebar::Sidebar() : impl_(std::make_unique<Impl>()) {}
 
 Sidebar::~Sidebar() = default;
+
+void Sidebar::SetNewTabAction(Action action) {
+  impl_->SetNewTabAction(std::move(action));
+}
 
 NSView* Sidebar::NativeView() const {
   return impl_->NativeView();

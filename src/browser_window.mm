@@ -1,7 +1,7 @@
 #include "briviba/browser_window.h"
 
 #include "briviba/sidebar.h"
-#include "briviba/tab.h"
+#include "briviba/tab_manager.h"
 #include "briviba/toolbar.h"
 
 #import <AppKit/AppKit.h>
@@ -62,33 +62,35 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[[NSColor windowBackgroundColor] CGColor]];
     [window_ setContentView:content_view_];
 
-    toolbar_.SetBackAction([this] { active_tab_.GoBack(); });
-    toolbar_.SetForwardAction([this] { active_tab_.GoForward(); });
-    toolbar_.SetReloadAction([this] { active_tab_.Reload(); });
+    sidebar_.SetNewTabAction([this] { tab_manager_.CreateTab(); });
+    toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
+    toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
+    toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
     toolbar_.SetAddressSubmitAction([this](const std::string& text) {
-      if (active_tab_.LoadUrl(text)) {
+      if (tab_manager_.LoadUrl(text)) {
         toolbar_.SetAddressText(text);
       }
     });
-    active_tab_.SetNavigationStateCallback(
+    tab_manager_.SetNavigationStateCallback(
         [this](bool can_go_back, bool can_go_forward, const std::string& url) {
           toolbar_.SetNavigationState(can_go_back, can_go_forward);
           toolbar_.SetAddressText(url);
         });
-    active_tab_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
+    tab_manager_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
+    tab_manager_.CreateInitialTab();
 
-    [content_view_ addSubview:active_tab_.NativeView()];
+    [content_view_ addSubview:tab_manager_.NativeView()];
     [content_view_ addSubview:sidebar_.NativeView()];
     [content_view_ addSubview:toolbar_.NativeView()];
     [NSLayoutConstraint activateConstraints:@[
-      [[active_tab_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
-                                                               constant:kWebViewLeading],
-      [[active_tab_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
-                                                           constant:kWebViewTop],
-      [[active_tab_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
-                                                                constant:-kWebViewTrailing],
-      [[active_tab_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
-                                                              constant:-kWebViewBottom],
+      [[tab_manager_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
+                                                                constant:kWebViewLeading],
+      [[tab_manager_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
+                                                            constant:kWebViewTop],
+      [[tab_manager_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
+                                                                 constant:-kWebViewTrailing],
+      [[tab_manager_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
+                                                               constant:-kWebViewBottom],
       [[sidebar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
                                                             constant:kSidebarLeading],
       [[sidebar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
@@ -118,7 +120,7 @@ class BrowserWindow::Impl {
   }
 
   Sidebar sidebar_;
-  Tab active_tab_;
+  TabManager tab_manager_;
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
