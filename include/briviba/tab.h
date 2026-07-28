@@ -7,6 +7,7 @@
 
 #ifdef __OBJC__
 @class NSView;
+@class WKWebsiteDataStore;
 #endif
 
 namespace briviba {
@@ -24,7 +25,9 @@ class Tab {
       std::function<void(bool can_go_back, bool can_go_forward, const std::string& url)>;
   using PageColorCallback = std::function<void(PageColor color)>;
 
-  Tab();
+#ifdef __OBJC__
+  explicit Tab(WKWebsiteDataStore* website_data_store);
+#endif
   ~Tab();
 
   Tab(const Tab&) = delete;

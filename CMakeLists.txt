@@ -18,6 +18,7 @@ add_executable(
   MACOSX_BUNDLE
   src/main.mm
   src/browser_window.mm
+  src/cookie_manager.mm
   src/history_manager.cc
   src/sidebar.mm
   src/tab.mm
@@ -45,6 +46,6 @@ set_target_properties(
              MACOSX_BUNDLE_INFO_PLIST
              "${CMAKE_CURRENT_SOURCE_DIR}/resources/Info.plist.in")
 
-set_source_files_properties(src/main.mm src/browser_window.mm src/sidebar.mm src/tab.mm
-                            src/tab_manager.mm src/toolbar.mm PROPERTIES COMPILE_FLAGS
-                            "-fobjc-arc")
+set_source_files_properties(src/main.mm src/browser_window.mm src/cookie_manager.mm src/sidebar.mm
+                            src/tab.mm src/tab_manager.mm src/toolbar.mm PROPERTIES
+                            COMPILE_FLAGS "-fobjc-arc")

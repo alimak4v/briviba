@@ -121,8 +121,11 @@ bool HasUrlScheme(const std::string& text) {
 
 class Tab::Impl {
  public:
-  Impl() {
+  explicit Impl(WKWebsiteDataStore* website_data_store) {
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+    if (website_data_store != nil) {
+      [configuration setWebsiteDataStore:website_data_store];
+    }
     web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
     [web_view_ setNavigationDelegate:navigation_delegate_];
@@ -185,7 +188,8 @@ class Tab::Impl {
   WKWebView* web_view_ = nil;
 };
 
-Tab::Tab() : impl_(std::make_unique<Impl>()) {}
+Tab::Tab(WKWebsiteDataStore* website_data_store)
+    : impl_(std::make_unique<Impl>(website_data_store)) {}
 
 Tab::~Tab() = default;
 

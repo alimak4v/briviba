@@ -1,6 +1,9 @@
 #include "briviba/tab_manager.h"
 
+#include "briviba/cookie_manager.h"
+
 #import <AppKit/AppKit.h>
+#import <WebKit/WebKit.h>
 
 #include <memory>
 #include <utility>
@@ -10,7 +13,7 @@ namespace briviba {
 
 class TabManager::Impl {
  public:
-  Impl() {
+  explicit Impl(CookieManager& cookie_manager) : cookie_manager_(cookie_manager) {
     container_view_ = [[NSView alloc] initWithFrame:NSZeroRect];
     [container_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     [container_view_ setWantsLayer:YES];
@@ -23,7 +26,7 @@ class TabManager::Impl {
   }
 
   void CreateTab() {
-    auto tab = std::make_unique<Tab>();
+    auto tab = std::make_unique<Tab>(cookie_manager_.NormalWebsiteDataStore());
     tab->SetNavigationStateCallback(navigation_state_callback_);
     tab->SetPageColorCallback(page_color_callback_);
 
@@ -112,12 +115,14 @@ class TabManager::Impl {
 
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
+  CookieManager& cookie_manager_;
   std::vector<std::unique_ptr<Tab>> tabs_;
   size_t active_index_ = 0;
   NSView* container_view_ = nil;
 };
 
-TabManager::TabManager() : impl_(std::make_unique<Impl>()) {}
+TabManager::TabManager(CookieManager& cookie_manager)
+    : impl_(std::make_unique<Impl>(cookie_manager)) {}
 
 TabManager::~TabManager() = default;
 

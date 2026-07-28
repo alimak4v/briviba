@@ -1,5 +1,6 @@
 #include "briviba/browser_window.h"
 
+#include "briviba/cookie_manager.h"
 #include "briviba/history_manager.h"
 #include "briviba/sidebar.h"
 #include "briviba/tab_manager.h"
@@ -122,8 +123,9 @@ class BrowserWindow::Impl {
   }
 
   HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
+  CookieManager cookie_manager_;
   Sidebar sidebar_;
-  TabManager tab_manager_;
+  TabManager tab_manager_{cookie_manager_};
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
