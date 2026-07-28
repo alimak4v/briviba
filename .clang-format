@@ -1,0 +1,6 @@
+BasedOnStyle: Google
+Language: Cpp
+ColumnLimit: 100
+IndentWidth: 2
+ObjCBlockIndentWidth: 2
+PointerAlignment: Left
