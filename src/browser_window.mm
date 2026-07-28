@@ -1,5 +1,6 @@
 #include "briviba/browser_window.h"
 
+#include "briviba/history_manager.h"
 #include "briviba/sidebar.h"
 #include "briviba/tab_manager.h"
 #include "briviba/toolbar.h"
@@ -75,6 +76,7 @@ class BrowserWindow::Impl {
         [this](bool can_go_back, bool can_go_forward, const std::string& url) {
           toolbar_.SetNavigationState(can_go_back, can_go_forward);
           toolbar_.SetAddressText(url);
+          history_manager_.RecordVisit(url);
         });
     tab_manager_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
     tab_manager_.CreateInitialTab();
@@ -119,6 +121,7 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[page_color CGColor]];
   }
 
+  HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
   Sidebar sidebar_;
   TabManager tab_manager_;
   Toolbar toolbar_;

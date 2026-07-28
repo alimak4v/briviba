@@ -13,12 +13,21 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
-add_executable(Briviba MACOSX_BUNDLE src/main.mm src/browser_window.mm src/sidebar.mm src/tab.mm
-                              src/tab_manager.mm src/toolbar.mm src/window_manager.cc)
+add_executable(
+  Briviba
+  MACOSX_BUNDLE
+  src/main.mm
+  src/browser_window.mm
+  src/history_manager.cc
+  src/sidebar.mm
+  src/tab.mm
+  src/tab_manager.mm
+  src/toolbar.mm
+  src/window_manager.cc)
 
 target_include_directories(Briviba PRIVATE include)
 
-target_link_libraries(Briviba PRIVATE "-framework AppKit" "-framework WebKit")
+target_link_libraries(Briviba PRIVATE "-framework AppKit" "-framework WebKit" sqlite3)
 
 target_compile_options(
   Briviba
