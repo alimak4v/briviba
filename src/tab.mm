@@ -144,20 +144,13 @@ bool HasUrlScheme(const std::string& text) {
 
 class Tab::Impl {
  public:
-  Impl(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager) {
-    WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
-    if (website_data_store != nil) {
-      [configuration setWebsiteDataStore:website_data_store];
-    }
-    web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
-    navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
-    navigation_delegate_->download_manager = &download_manager;
-    [web_view_ setNavigationDelegate:navigation_delegate_];
-    [web_view_ setAllowsBackForwardNavigationGestures:YES];
-    [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+  Impl(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
+      : website_data_store_(website_data_store), download_manager_(download_manager) {
+    EnsureLoaded();
   }
 
   bool LoadUrl(const std::string& text) {
+    EnsureLoaded();
     std::string trimmed = TrimAsciiWhitespace(text);
     if (trimmed.empty()) {
       return false;
@@ -170,19 +163,31 @@ class Tab::Impl {
       return false;
     }
 
+    current_url_ = url_text;
     [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
     EmitNavigationState();
     return true;
   }
 
   std::string CurrentUrl() const {
+    if (web_view_ == nil) {
+      return current_url_;
+    }
     NSURL* url = [web_view_ URL];
     NSString* absolute_string = url == nil ? @"" : [url absoluteString];
     const char* utf8 = [absolute_string UTF8String];
     return utf8 == nullptr ? std::string() : std::string(utf8);
   }
 
+  void Unload() {
+    current_url_ = CurrentUrl();
+    [web_view_ setNavigationDelegate:nil];
+    navigation_delegate_ = nil;
+    web_view_ = nil;
+  }
+
   void GoBack() {
+    EnsureLoaded();
     if ([web_view_ canGoBack]) {
       [web_view_ goBack];
     }
@@ -190,6 +195,7 @@ class Tab::Impl {
   }
 
   void GoForward() {
+    EnsureLoaded();
     if ([web_view_ canGoForward]) {
       [web_view_ goForward];
     }
@@ -197,24 +203,59 @@ class Tab::Impl {
   }
 
   void Reload() {
+    EnsureLoaded();
     [web_view_ reload];
     EmitNavigationState();
   }
 
   void SetNavigationStateCallback(NavigationStateCallback callback) {
-    navigation_delegate_->navigation_state_callback = std::move(callback);
+    navigation_state_callback_ = std::move(callback);
+    if (navigation_delegate_ != nil) {
+      navigation_delegate_->navigation_state_callback = navigation_state_callback_;
+    }
     EmitNavigationState();
   }
 
   void SetPageColorCallback(PageColorCallback callback) {
-    navigation_delegate_->page_color_callback = std::move(callback);
+    page_color_callback_ = std::move(callback);
+    if (navigation_delegate_ != nil) {
+      navigation_delegate_->page_color_callback = page_color_callback_;
+    }
   }
 
   NSView* NativeView() const { return web_view_; }
 
  private:
-  void EmitNavigationState() { [navigation_delegate_ emitNavigationStateForWebView:web_view_]; }
+  void EnsureLoaded() {
+    if (web_view_ != nil) {
+      return;
+    }
 
+    WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+    if (website_data_store_ != nil) {
+      [configuration setWebsiteDataStore:website_data_store_];
+    }
+    web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
+    navigation_delegate_->download_manager = &download_manager_;
+    navigation_delegate_->navigation_state_callback = navigation_state_callback_;
+    navigation_delegate_->page_color_callback = page_color_callback_;
+    [web_view_ setNavigationDelegate:navigation_delegate_];
+    [web_view_ setAllowsBackForwardNavigationGestures:YES];
+    [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+  }
+
+  void EmitNavigationState() {
+    if (navigation_delegate_ != nil && web_view_ != nil) {
+      [navigation_delegate_ emitNavigationStateForWebView:web_view_];
+    }
+  }
+
+  WKWebsiteDataStore* website_data_store_ = nil;
+  DownloadManager& download_manager_;
+  NavigationStateCallback navigation_state_callback_;
+  PageColorCallback page_color_callback_;
+  std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
   WKWebView* web_view_ = nil;
 };
@@ -230,6 +271,10 @@ bool Tab::LoadUrl(const std::string& text) {
 
 std::string Tab::CurrentUrl() const {
   return impl_->CurrentUrl();
+}
+
+void Tab::Unload() {
+  impl_->Unload();
 }
 
 void Tab::GoBack() {

@@ -37,6 +37,7 @@ class Tab {
 
   bool LoadUrl(const std::string& text);
   std::string CurrentUrl() const;
+  void Unload();
   void GoBack();
   void GoForward();
   void Reload();

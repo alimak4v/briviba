@@ -57,6 +57,7 @@ class TabManager::Impl {
         ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(), browsing_mode_});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
+    UnloadInactiveTabs();
     EmitDefaultPageColor();
   }
 
@@ -183,6 +184,7 @@ class TabManager::Impl {
       tabs_[active_index_] = std::move(managed_tab);
     }
     MountActiveTab();
+    UnloadInactiveTabs();
   }
 
   void MountActiveTab() {
@@ -208,6 +210,14 @@ class TabManager::Impl {
   void EmitDefaultPageColor() {
     if (page_color_callback_) {
       page_color_callback_(Tab::PageColor{});
+    }
+  }
+
+  void UnloadInactiveTabs() {
+    for (size_t index = 0; index < tabs_.size(); ++index) {
+      if (index != active_index_) {
+        tabs_[index].tab->Unload();
+      }
     }
   }
 
