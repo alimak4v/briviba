@@ -1,8 +1,9 @@
 #include "briviba/settings_manager.h"
 
+#include "briviba/app_paths.h"
+
 #include <sqlite3.h>
 
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -35,14 +36,6 @@ class Statement {
  private:
   sqlite3_stmt* statement_ = nullptr;
 };
-
-std::filesystem::path HomeDirectory() {
-  const char* home = std::getenv("HOME");
-  if (home == nullptr || std::string(home).empty()) {
-    return std::filesystem::current_path();
-  }
-  return std::filesystem::path(home);
-}
 
 }  // namespace
 
@@ -132,7 +125,7 @@ SettingsManager::SettingsManager(std::filesystem::path database_path)
 SettingsManager::~SettingsManager() = default;
 
 std::filesystem::path SettingsManager::DefaultDatabasePath() {
-  return HomeDirectory() / "Library" / "Application Support" / "Briviba" / "settings.sqlite3";
+  return ApplicationSupportFile("settings.sqlite3");
 }
 
 bool SettingsManager::StartWithSecureMode() const {

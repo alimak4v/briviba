@@ -1,10 +1,11 @@
 #include "briviba/cookie_manager.h"
 
+#include "briviba/app_paths.h"
+
 #include <sqlite3.h>
 
 #import <WebKit/WebKit.h>
 
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -35,14 +36,6 @@ class Statement {
  private:
   sqlite3_stmt* statement_ = nullptr;
 };
-
-std::filesystem::path HomeDirectory() {
-  const char* home = std::getenv("HOME");
-  if (home == nullptr || std::string(home).empty()) {
-    return std::filesystem::current_path();
-  }
-  return std::filesystem::path(home);
-}
 
 }  // namespace
 
@@ -161,8 +154,7 @@ CookieManager::CookieManager(std::filesystem::path database_path)
 CookieManager::~CookieManager() = default;
 
 std::filesystem::path CookieManager::DefaultDatabasePath() {
-  return HomeDirectory() / "Library" / "Application Support" / "Briviba" /
-         "site-containers.sqlite3";
+  return ApplicationSupportFile("site-containers.sqlite3");
 }
 
 WKWebsiteDataStore* CookieManager::NormalWebsiteDataStore() const {

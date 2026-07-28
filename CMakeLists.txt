@@ -17,6 +17,7 @@ add_executable(
   Briviba
   MACOSX_BUNDLE
   src/main.mm
+  src/app_paths.cc
   src/bookmark_manager.cc
   src/browser_window.mm
   src/cookie_manager.mm

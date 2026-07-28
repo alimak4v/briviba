@@ -1,9 +1,10 @@
 #include "briviba/history_manager.h"
 
+#include "briviba/app_paths.h"
+
 #include <sqlite3.h>
 
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -38,14 +39,6 @@ class Statement {
 int64_t UnixTimeSeconds() {
   const auto now = std::chrono::system_clock::now();
   return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-}
-
-std::filesystem::path HomeDirectory() {
-  const char* home = std::getenv("HOME");
-  if (home == nullptr || std::string(home).empty()) {
-    return std::filesystem::current_path();
-  }
-  return std::filesystem::path(home);
 }
 
 }  // namespace
@@ -120,7 +113,7 @@ HistoryManager::HistoryManager(std::filesystem::path database_path)
 HistoryManager::~HistoryManager() = default;
 
 std::filesystem::path HistoryManager::DefaultDatabasePath() {
-  return HomeDirectory() / "Library" / "Application Support" / "Briviba" / "history.sqlite3";
+  return ApplicationSupportFile("history.sqlite3");
 }
 
 bool HistoryManager::RecordVisit(const std::string& url) {

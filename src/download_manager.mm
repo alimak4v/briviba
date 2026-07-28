@@ -1,12 +1,13 @@
 #include "briviba/download_manager.h"
 
+#include "briviba/app_paths.h"
+
 #include <sqlite3.h>
 
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
 
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -47,14 +48,6 @@ class Statement {
 int64_t UnixTimeSeconds() {
   const auto now = std::chrono::system_clock::now();
   return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-}
-
-std::filesystem::path HomeDirectory() {
-  const char* home = std::getenv("HOME");
-  if (home == nullptr || std::string(home).empty()) {
-    return std::filesystem::current_path();
-  }
-  return std::filesystem::path(home);
 }
 
 std::string StringFromNSString(NSString* value) {
@@ -195,7 +188,7 @@ DownloadManager::DownloadManager(std::filesystem::path database_path)
 DownloadManager::~DownloadManager() = default;
 
 std::filesystem::path DownloadManager::DefaultDatabasePath() {
-  return HomeDirectory() / "Library" / "Application Support" / "Briviba" / "downloads.sqlite3";
+  return ApplicationSupportFile("downloads.sqlite3");
 }
 
 void DownloadManager::ManageDownload(WKDownload* download) {
