@@ -1,6 +1,7 @@
 #include "briviba/browser_window.h"
 
 #include "briviba/sidebar.h"
+#include "briviba/toolbar.h"
 
 #import <AppKit/AppKit.h>
 
@@ -15,6 +16,9 @@ constexpr CGFloat kVisibleFrameScale = 0.88;
 constexpr CGFloat kSidebarLeading = 16.0;
 constexpr CGFloat kSidebarTop = 58.0;
 constexpr CGFloat kSidebarBottom = 18.0;
+constexpr CGFloat kToolbarLeading = 136.0;
+constexpr CGFloat kToolbarTop = 18.0;
+constexpr CGFloat kToolbarTrailing = 24.0;
 
 NSRect InitialWindowFrame() {
   NSScreen* screen = [NSScreen mainScreen];
@@ -54,6 +58,7 @@ class BrowserWindow::Impl {
     [window_ setContentView:content_view_];
 
     [content_view_ addSubview:sidebar_.NativeView()];
+    [content_view_ addSubview:toolbar_.NativeView()];
     [NSLayoutConstraint activateConstraints:@[
       [[sidebar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
                                                             constant:kSidebarLeading],
@@ -61,6 +66,12 @@ class BrowserWindow::Impl {
                                                         constant:kSidebarTop],
       [[sidebar_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
                                                            constant:-kSidebarBottom],
+      [[toolbar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
+                                                            constant:kToolbarLeading],
+      [[toolbar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
+                                                        constant:kToolbarTop],
+      [[toolbar_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
+                                                             constant:-kToolbarTrailing],
     ]];
   }
 
@@ -70,6 +81,7 @@ class BrowserWindow::Impl {
 
  private:
   Sidebar sidebar_;
+  Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
 };
