@@ -1,7 +1,9 @@
 #ifndef BRIVIBA_COOKIE_MANAGER_H_
 #define BRIVIBA_COOKIE_MANAGER_H_
 
+#include <filesystem>
 #include <memory>
+#include <string>
 
 #ifdef __OBJC__
 @class WKWebsiteDataStore;
@@ -11,14 +13,17 @@ namespace briviba {
 
 class CookieManager {
  public:
-  CookieManager();
+  explicit CookieManager(std::filesystem::path database_path);
   ~CookieManager();
 
   CookieManager(const CookieManager&) = delete;
   CookieManager& operator=(const CookieManager&) = delete;
 
+  static std::filesystem::path DefaultDatabasePath();
+
 #ifdef __OBJC__
   WKWebsiteDataStore* NormalWebsiteDataStore() const;
+  WKWebsiteDataStore* WebsiteDataStoreForTopLevelSite(const std::string& top_level_site);
 #endif
 
  private:

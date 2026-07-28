@@ -6,10 +6,35 @@
 #import <WebKit/WebKit.h>
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 namespace briviba {
+namespace {
+
+std::string StringFromNSString(NSString* value) {
+  const char* utf8 = [value UTF8String];
+  return utf8 == nullptr ? std::string() : std::string(utf8);
+}
+
+std::string TopLevelSiteFromInput(const std::string& text) {
+  NSString* raw_text = [NSString stringWithUTF8String:text.c_str()];
+  NSString* trimmed =
+      [raw_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if ([trimmed length] == 0) {
+    return std::string();
+  }
+
+  NSString* url_text = [trimmed containsString:@"://"]
+                           ? trimmed
+                           : [NSString stringWithFormat:@"https://%@", trimmed];
+  NSURL* url = [NSURL URLWithString:url_text];
+  NSString* host = [[url host] lowercaseString];
+  return host == nil ? std::string() : StringFromNSString(host);
+}
+
+}  // namespace
 
 class TabManager::Impl {
  public:
@@ -26,17 +51,18 @@ class TabManager::Impl {
   }
 
   void CreateTab() {
-    auto tab = std::make_unique<Tab>(cookie_manager_.NormalWebsiteDataStore());
-    tab->SetNavigationStateCallback(navigation_state_callback_);
-    tab->SetPageColorCallback(page_color_callback_);
-
-    tabs_.push_back(std::move(tab));
+    tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(std::string()), std::string()});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     EmitDefaultPageColor();
   }
 
   bool LoadUrl(const std::string& text) {
+    const std::string top_level_site = TopLevelSiteFromInput(text);
+    if (!top_level_site.empty() && ActiveTopLevelSite() != top_level_site) {
+      ReplaceActiveTabForTopLevelSite(top_level_site);
+    }
+
     Tab* tab = ActiveTab();
     return tab != nullptr && tab->LoadUrl(text);
   }
@@ -64,15 +90,15 @@ class TabManager::Impl {
 
   void SetNavigationStateCallback(NavigationStateCallback callback) {
     navigation_state_callback_ = std::move(callback);
-    for (const auto& tab : tabs_) {
-      tab->SetNavigationStateCallback(navigation_state_callback_);
+    for (auto& tab : tabs_) {
+      tab.tab->SetNavigationStateCallback(navigation_state_callback_);
     }
   }
 
   void SetPageColorCallback(PageColorCallback callback) {
     page_color_callback_ = std::move(callback);
-    for (const auto& tab : tabs_) {
-      tab->SetPageColorCallback(page_color_callback_);
+    for (auto& tab : tabs_) {
+      tab.tab->SetPageColorCallback(page_color_callback_);
     }
     EmitDefaultPageColor();
   }
@@ -80,11 +106,43 @@ class TabManager::Impl {
   NSView* NativeView() const { return container_view_; }
 
  private:
+  struct ManagedTab {
+    std::unique_ptr<Tab> tab;
+    std::string top_level_site;
+  };
+
   Tab* ActiveTab() {
     if (tabs_.empty() || active_index_ >= tabs_.size()) {
       return nullptr;
     }
-    return tabs_[active_index_].get();
+    return tabs_[active_index_].tab.get();
+  }
+
+  std::string ActiveTopLevelSite() const {
+    if (tabs_.empty() || active_index_ >= tabs_.size()) {
+      return std::string();
+    }
+    return tabs_[active_index_].top_level_site;
+  }
+
+  std::unique_ptr<Tab> CreateTabForTopLevelSite(const std::string& top_level_site) {
+    WKWebsiteDataStore* data_store =
+        top_level_site.empty() ? cookie_manager_.NormalWebsiteDataStore()
+                               : cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
+    auto tab = std::make_unique<Tab>(data_store);
+    tab->SetNavigationStateCallback(navigation_state_callback_);
+    tab->SetPageColorCallback(page_color_callback_);
+    return tab;
+  }
+
+  void ReplaceActiveTabForTopLevelSite(const std::string& top_level_site) {
+    if (tabs_.empty()) {
+      tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(top_level_site), top_level_site});
+      active_index_ = 0;
+    } else {
+      tabs_[active_index_] = ManagedTab{CreateTabForTopLevelSite(top_level_site), top_level_site};
+    }
+    MountActiveTab();
   }
 
   void MountActiveTab() {
@@ -116,7 +174,7 @@ class TabManager::Impl {
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
   CookieManager& cookie_manager_;
-  std::vector<std::unique_ptr<Tab>> tabs_;
+  std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
   NSView* container_view_ = nil;
 };

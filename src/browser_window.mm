@@ -123,7 +123,7 @@ class BrowserWindow::Impl {
   }
 
   HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
-  CookieManager cookie_manager_;
+  CookieManager cookie_manager_{CookieManager::DefaultDatabasePath()};
   Sidebar sidebar_;
   TabManager tab_manager_{cookie_manager_};
   Toolbar toolbar_;
