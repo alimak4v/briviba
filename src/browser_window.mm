@@ -1,6 +1,7 @@
 #include "briviba/browser_window.h"
 
 #include "briviba/sidebar.h"
+#include "briviba/tab.h"
 #include "briviba/toolbar.h"
 
 #import <AppKit/AppKit.h>
@@ -19,6 +20,10 @@ constexpr CGFloat kSidebarBottom = 18.0;
 constexpr CGFloat kToolbarLeading = 136.0;
 constexpr CGFloat kToolbarTop = 18.0;
 constexpr CGFloat kToolbarTrailing = 24.0;
+constexpr CGFloat kWebViewLeading = 96.0;
+constexpr CGFloat kWebViewTop = 76.0;
+constexpr CGFloat kWebViewTrailing = 16.0;
+constexpr CGFloat kWebViewBottom = 18.0;
 
 NSRect InitialWindowFrame() {
   NSScreen* screen = [NSScreen mainScreen];
@@ -57,9 +62,18 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[[NSColor windowBackgroundColor] CGColor]];
     [window_ setContentView:content_view_];
 
+    [content_view_ addSubview:active_tab_.NativeView()];
     [content_view_ addSubview:sidebar_.NativeView()];
     [content_view_ addSubview:toolbar_.NativeView()];
     [NSLayoutConstraint activateConstraints:@[
+      [[active_tab_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
+                                                               constant:kWebViewLeading],
+      [[active_tab_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
+                                                           constant:kWebViewTop],
+      [[active_tab_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
+                                                                constant:-kWebViewTrailing],
+      [[active_tab_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
+                                                              constant:-kWebViewBottom],
       [[sidebar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
                                                             constant:kSidebarLeading],
       [[sidebar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
@@ -81,6 +95,7 @@ class BrowserWindow::Impl {
 
  private:
   Sidebar sidebar_;
+  Tab active_tab_;
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;

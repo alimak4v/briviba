@@ -13,12 +13,12 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
-add_executable(Briviba MACOSX_BUNDLE src/main.mm src/browser_window.mm src/sidebar.mm
+add_executable(Briviba MACOSX_BUNDLE src/main.mm src/browser_window.mm src/sidebar.mm src/tab.mm
                               src/toolbar.mm src/window_manager.cc)
 
 target_include_directories(Briviba PRIVATE include)
 
-target_link_libraries(Briviba PRIVATE "-framework AppKit")
+target_link_libraries(Briviba PRIVATE "-framework AppKit" "-framework WebKit")
 
 target_compile_options(
   Briviba
@@ -36,5 +36,5 @@ set_target_properties(
              MACOSX_BUNDLE_INFO_PLIST
              "${CMAKE_CURRENT_SOURCE_DIR}/resources/Info.plist.in")
 
-set_source_files_properties(src/main.mm src/browser_window.mm src/sidebar.mm src/toolbar.mm
+set_source_files_properties(src/main.mm src/browser_window.mm src/sidebar.mm src/tab.mm src/toolbar.mm
                             PROPERTIES COMPILE_FLAGS "-fobjc-arc")
