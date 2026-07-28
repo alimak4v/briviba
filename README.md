@@ -10,3 +10,13 @@ Supporting documents:
 - [docs/UI.md](docs/UI.md)
 - [docs/CODING_RULES.md](docs/CODING_RULES.md)
 
+## Current Implementation
+
+Briviba currently builds as a native macOS AppKit/WebKit app bundle with:
+
+- native window, Liquid Glass sidebar, floating toolbar, and WKWebView content area;
+- URL loading, Back, Forward, Reload, page-derived chrome color, and basic tabs;
+- SQLite-backed history, bookmarks, downloads, settings, and site-container mapping;
+- Normal mode per-top-level-site WebKit data stores;
+- Secure mode using non-persistent WebKit storage;
+- inactive tab WKWebView unloading.
