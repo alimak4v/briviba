@@ -12,6 +12,8 @@
 
 namespace briviba {
 
+class DownloadManager;
+
 class Tab {
  public:
   struct PageColor {
@@ -26,7 +28,7 @@ class Tab {
   using PageColorCallback = std::function<void(PageColor color)>;
 
 #ifdef __OBJC__
-  explicit Tab(WKWebsiteDataStore* website_data_store);
+  Tab(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager);
 #endif
   ~Tab();
 

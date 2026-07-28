@@ -2,6 +2,7 @@
 
 #include "briviba/bookmark_manager.h"
 #include "briviba/cookie_manager.h"
+#include "briviba/download_manager.h"
 #include "briviba/history_manager.h"
 #include "briviba/sidebar.h"
 #include "briviba/tab_manager.h"
@@ -138,8 +139,9 @@ class BrowserWindow::Impl {
   BookmarkManager bookmark_manager_{BookmarkManager::DefaultDatabasePath()};
   HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
   CookieManager cookie_manager_{CookieManager::DefaultDatabasePath()};
+  DownloadManager download_manager_{DownloadManager::DefaultDatabasePath()};
   Sidebar sidebar_;
-  TabManager tab_manager_{cookie_manager_};
+  TabManager tab_manager_{cookie_manager_, download_manager_};
   Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;

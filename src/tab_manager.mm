@@ -1,6 +1,7 @@
 #include "briviba/tab_manager.h"
 
 #include "briviba/cookie_manager.h"
+#include "briviba/download_manager.h"
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
@@ -38,7 +39,8 @@ std::string TopLevelSiteFromInput(const std::string& text) {
 
 class TabManager::Impl {
  public:
-  explicit Impl(CookieManager& cookie_manager) : cookie_manager_(cookie_manager) {
+  Impl(CookieManager& cookie_manager, DownloadManager& download_manager)
+      : cookie_manager_(cookie_manager), download_manager_(download_manager) {
     container_view_ = [[NSView alloc] initWithFrame:NSZeroRect];
     [container_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     [container_view_ setWantsLayer:YES];
@@ -162,7 +164,7 @@ class TabManager::Impl {
     } else if (!top_level_site.empty()) {
       data_store = cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
     }
-    auto tab = std::make_unique<Tab>(data_store);
+    auto tab = std::make_unique<Tab>(data_store, download_manager_);
     tab->SetNavigationStateCallback(navigation_state_callback_);
     tab->SetPageColorCallback(page_color_callback_);
     return tab;
@@ -212,14 +214,15 @@ class TabManager::Impl {
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
   CookieManager& cookie_manager_;
+  DownloadManager& download_manager_;
   BrowsingMode browsing_mode_ = BrowsingMode::kNormal;
   std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
   NSView* container_view_ = nil;
 };
 
-TabManager::TabManager(CookieManager& cookie_manager)
-    : impl_(std::make_unique<Impl>(cookie_manager)) {}
+TabManager::TabManager(CookieManager& cookie_manager, DownloadManager& download_manager)
+    : impl_(std::make_unique<Impl>(cookie_manager, download_manager)) {}
 
 TabManager::~TabManager() = default;
 

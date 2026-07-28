@@ -13,6 +13,7 @@
 namespace briviba {
 
 class CookieManager;
+class DownloadManager;
 
 class TabManager {
  public:
@@ -21,7 +22,7 @@ class TabManager {
   using NavigationStateCallback = Tab::NavigationStateCallback;
   using PageColorCallback = Tab::PageColorCallback;
 
-  explicit TabManager(CookieManager& cookie_manager);
+  TabManager(CookieManager& cookie_manager, DownloadManager& download_manager);
   ~TabManager();
 
   TabManager(const TabManager&) = delete;

@@ -1,5 +1,7 @@
 #include "briviba/tab.h"
 
+#include "briviba/download_manager.h"
+
 #import <WebKit/WebKit.h>
 
 #include <cctype>
@@ -11,6 +13,7 @@
  @public
   briviba::Tab::NavigationStateCallback navigation_state_callback;
   briviba::Tab::PageColorCallback page_color_callback;
+  briviba::DownloadManager* download_manager;
 }
 - (void)emitNavigationStateForWebView:(WKWebView*)web_view;
 - (void)emitPageColorForWebView:(WKWebView*)web_view;
@@ -27,6 +30,26 @@
   (void)navigation;
   [self emitNavigationStateForWebView:webView];
   [self emitPageColorForWebView:webView];
+}
+
+- (void)webView:(WKWebView*)webView
+    navigationAction:(WKNavigationAction*)navigationAction
+    didBecomeDownload:(WKDownload*)download {
+  (void)webView;
+  (void)navigationAction;
+  if (download_manager != nullptr) {
+    download_manager->ManageDownload(download);
+  }
+}
+
+- (void)webView:(WKWebView*)webView
+    navigationResponse:(WKNavigationResponse*)navigationResponse
+     didBecomeDownload:(WKDownload*)download {
+  (void)webView;
+  (void)navigationResponse;
+  if (download_manager != nullptr) {
+    download_manager->ManageDownload(download);
+  }
 }
 
 - (void)emitNavigationStateForWebView:(WKWebView*)web_view {
@@ -121,13 +144,14 @@ bool HasUrlScheme(const std::string& text) {
 
 class Tab::Impl {
  public:
-  explicit Impl(WKWebsiteDataStore* website_data_store) {
+  Impl(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager) {
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
     if (website_data_store != nil) {
       [configuration setWebsiteDataStore:website_data_store];
     }
     web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
+    navigation_delegate_->download_manager = &download_manager;
     [web_view_ setNavigationDelegate:navigation_delegate_];
     [web_view_ setAllowsBackForwardNavigationGestures:YES];
     [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
@@ -195,8 +219,8 @@ class Tab::Impl {
   WKWebView* web_view_ = nil;
 };
 
-Tab::Tab(WKWebsiteDataStore* website_data_store)
-    : impl_(std::make_unique<Impl>(website_data_store)) {}
+Tab::Tab(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
+    : impl_(std::make_unique<Impl>(website_data_store, download_manager)) {}
 
 Tab::~Tab() = default;
 
