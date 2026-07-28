@@ -15,6 +15,8 @@ set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
 add_executable(Briviba MACOSX_BUNDLE src/main.mm)
 
+target_link_libraries(Briviba PRIVATE "-framework AppKit")
+
 target_compile_options(
   Briviba
   PRIVATE -Wall
