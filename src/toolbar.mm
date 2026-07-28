@@ -3,6 +3,58 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <functional>
+#include <string>
+#include <utility>
+
+@interface BrivibaToolbarActionBridge : NSObject {
+ @public
+  briviba::Toolbar::Action back_action;
+  briviba::Toolbar::Action forward_action;
+  briviba::Toolbar::Action reload_action;
+  briviba::Toolbar::AddressSubmitAction address_submit_action;
+}
+- (void)goBack:(id)sender;
+- (void)goForward:(id)sender;
+- (void)reload:(id)sender;
+- (void)submitAddress:(id)sender;
+@end
+
+@implementation BrivibaToolbarActionBridge
+
+- (void)goBack:(id)sender {
+  (void)sender;
+  if (back_action) {
+    back_action();
+  }
+}
+
+- (void)goForward:(id)sender {
+  (void)sender;
+  if (forward_action) {
+    forward_action();
+  }
+}
+
+- (void)reload:(id)sender {
+  (void)sender;
+  if (reload_action) {
+    reload_action();
+  }
+}
+
+- (void)submitAddress:(id)sender {
+  if (!address_submit_action || ![sender respondsToSelector:@selector(stringValue)]) {
+    return;
+  }
+
+  NSString* value = [sender stringValue];
+  const char* utf8 = [value UTF8String];
+  address_submit_action(utf8 == nullptr ? std::string() : std::string(utf8));
+}
+
+@end
+
 namespace briviba {
 namespace {
 
@@ -52,47 +104,109 @@ NSSearchField* AddressField() {
 class Toolbar::Impl {
  public:
   Impl() {
+    bridge_ = [[BrivibaToolbarActionBridge alloc] init];
+
     view_ = [[NSView alloc] initWithFrame:NSZeroRect];
     [view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
 
-    NSButton* back_button = CircularButton(@"chevron.left", @"Back");
-    NSButton* forward_button = CircularButton(@"chevron.right", @"Forward");
-    NSButton* reload_button = CircularButton(@"arrow.clockwise", @"Reload");
-    NSSearchField* address_field = AddressField();
+    back_button_ = CircularButton(@"chevron.left", @"Back");
+    forward_button_ = CircularButton(@"chevron.right", @"Forward");
+    reload_button_ = CircularButton(@"arrow.clockwise", @"Reload");
+    address_field_ = AddressField();
     NSButton* menu_button = CircularButton(@"ellipsis", @"Menu");
 
-    [view_ addSubview:back_button];
-    [view_ addSubview:forward_button];
-    [view_ addSubview:reload_button];
-    [view_ addSubview:address_field];
+    [back_button_ setTarget:bridge_];
+    [back_button_ setAction:@selector(goBack:)];
+    [forward_button_ setTarget:bridge_];
+    [forward_button_ setAction:@selector(goForward:)];
+    [reload_button_ setTarget:bridge_];
+    [reload_button_ setAction:@selector(reload:)];
+    [address_field_ setTarget:bridge_];
+    [address_field_ setAction:@selector(submitAddress:)];
+
+    [back_button_ setEnabled:NO];
+    [forward_button_ setEnabled:NO];
+
+    [view_ addSubview:back_button_];
+    [view_ addSubview:forward_button_];
+    [view_ addSubview:reload_button_];
+    [view_ addSubview:address_field_];
     [view_ addSubview:menu_button];
 
     [NSLayoutConstraint activateConstraints:@[
       [[view_ heightAnchor] constraintEqualToConstant:kToolbarHeight],
-      [[back_button leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
-      [[back_button centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
-      [[forward_button leadingAnchor] constraintEqualToAnchor:[back_button trailingAnchor]
+      [[back_button_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
+      [[back_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
+      [[forward_button_ leadingAnchor] constraintEqualToAnchor:[back_button_ trailingAnchor]
+                                                      constant:kControlSpacing],
+      [[forward_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
+      [[reload_button_ leadingAnchor] constraintEqualToAnchor:[forward_button_ trailingAnchor]
                                                      constant:kControlSpacing],
-      [[forward_button centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
-      [[reload_button leadingAnchor] constraintEqualToAnchor:[forward_button trailingAnchor]
-                                                    constant:kControlSpacing],
-      [[reload_button centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
-      [[address_field centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
-      [[address_field centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
+      [[reload_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
+      [[address_field_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
+      [[address_field_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
       [[menu_button trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
       [[menu_button centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
     ]];
   }
 
+  void SetBackAction(Action action) { bridge_->back_action = std::move(action); }
+
+  void SetForwardAction(Action action) { bridge_->forward_action = std::move(action); }
+
+  void SetReloadAction(Action action) { bridge_->reload_action = std::move(action); }
+
+  void SetAddressSubmitAction(AddressSubmitAction action) {
+    bridge_->address_submit_action = std::move(action);
+  }
+
+  void SetAddressText(const std::string& text) {
+    [address_field_ setStringValue:[NSString stringWithUTF8String:text.c_str()]];
+  }
+
+  void SetNavigationState(bool can_go_back, bool can_go_forward) {
+    [back_button_ setEnabled:can_go_back];
+    [forward_button_ setEnabled:can_go_forward];
+  }
+
   NSView* NativeView() const { return view_; }
 
  private:
+  BrivibaToolbarActionBridge* bridge_ = nil;
+  NSButton* back_button_ = nil;
+  NSButton* forward_button_ = nil;
+  NSButton* reload_button_ = nil;
+  NSSearchField* address_field_ = nil;
   NSView* view_ = nil;
 };
 
 Toolbar::Toolbar() : impl_(std::make_unique<Impl>()) {}
 
 Toolbar::~Toolbar() = default;
+
+void Toolbar::SetBackAction(Action action) {
+  impl_->SetBackAction(std::move(action));
+}
+
+void Toolbar::SetForwardAction(Action action) {
+  impl_->SetForwardAction(std::move(action));
+}
+
+void Toolbar::SetReloadAction(Action action) {
+  impl_->SetReloadAction(std::move(action));
+}
+
+void Toolbar::SetAddressSubmitAction(AddressSubmitAction action) {
+  impl_->SetAddressSubmitAction(std::move(action));
+}
+
+void Toolbar::SetAddressText(const std::string& text) {
+  impl_->SetAddressText(text);
+}
+
+void Toolbar::SetNavigationState(bool can_go_back, bool can_go_forward) {
+  impl_->SetNavigationState(can_go_back, can_go_forward);
+}
 
 NSView* Toolbar::NativeView() const {
   return impl_->NativeView();

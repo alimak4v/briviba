@@ -62,6 +62,21 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[[NSColor windowBackgroundColor] CGColor]];
     [window_ setContentView:content_view_];
 
+    toolbar_.SetBackAction([this] { active_tab_.GoBack(); });
+    toolbar_.SetForwardAction([this] { active_tab_.GoForward(); });
+    toolbar_.SetReloadAction([this] { active_tab_.Reload(); });
+    toolbar_.SetAddressSubmitAction([this](const std::string& text) {
+      if (active_tab_.LoadUrl(text)) {
+        toolbar_.SetAddressText(text);
+      }
+    });
+    active_tab_.SetNavigationStateCallback(
+        [this](bool can_go_back, bool can_go_forward, const std::string& url) {
+          toolbar_.SetNavigationState(can_go_back, can_go_forward);
+          toolbar_.SetAddressText(url);
+        });
+    active_tab_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
+
     [content_view_ addSubview:active_tab_.NativeView()];
     [content_view_ addSubview:sidebar_.NativeView()];
     [content_view_ addSubview:toolbar_.NativeView()];
@@ -94,6 +109,14 @@ class BrowserWindow::Impl {
   void Show() { [window_ makeKeyAndOrderFront:nil]; }
 
  private:
+  void ApplyPageColor(Tab::PageColor color) {
+    NSColor* page_color = [NSColor colorWithSRGBRed:color.red
+                                             green:color.green
+                                              blue:color.blue
+                                             alpha:0.22 * color.alpha];
+    [[content_view_ layer] setBackgroundColor:[page_color CGColor]];
+  }
+
   Sidebar sidebar_;
   Tab active_tab_;
   Toolbar toolbar_;
