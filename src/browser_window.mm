@@ -23,14 +23,15 @@ constexpr CGFloat kVisibleFrameScale = 0.88;
 constexpr CGFloat kSidebarLeading = 16.0;
 constexpr CGFloat kSidebarTop = 58.0;
 constexpr CGFloat kSidebarBottom = 18.0;
-constexpr CGFloat kToolbarLeading = 136.0;
-constexpr CGFloat kToolbarTop = 18.0;
-constexpr CGFloat kToolbarTrailing = 24.0;
+constexpr CGFloat kToolbarLeading = 138.0;
+constexpr CGFloat kToolbarTop = 22.0;
+constexpr CGFloat kToolbarTrailing = 34.0;
 constexpr CGFloat kWebViewLeading = 96.0;
 constexpr CGFloat kWebViewTop = 76.0;
 constexpr CGFloat kWebViewTrailing = 16.0;
 constexpr CGFloat kWebViewBottom = 18.0;
 constexpr double kColorEpsilon = 0.002;
+constexpr const char* kDefaultStartUrl = "https://duckduckgo.com";
 
 NSRect InitialWindowFrame() {
   NSScreen* screen = [NSScreen mainScreen];
@@ -124,11 +125,16 @@ class BrowserWindow::Impl {
       [[toolbar_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
                                                              constant:-kToolbarTrailing],
     ]];
+    tab_manager_.LoadUrl(kDefaultStartUrl);
+    toolbar_.SetAddressText(kDefaultStartUrl);
   }
 
   ~Impl() { [window_ close]; }
 
-  void Show() { [window_ makeKeyAndOrderFront:nil]; }
+  void Show() {
+    [window_ makeKeyAndOrderFront:nil];
+    [window_ makeFirstResponder:toolbar_.AddressFieldNativeView()];
+  }
 
  private:
   void ToggleBrowsingMode() {

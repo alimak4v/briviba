@@ -27,9 +27,15 @@ std::string TopLevelSiteFromInput(const std::string& text) {
     return std::string();
   }
 
-  NSString* url_text = [trimmed containsString:@"://"]
-                           ? trimmed
-                           : [NSString stringWithFormat:@"https://%@", trimmed];
+  NSString* url_text = nil;
+  if (![trimmed containsString:@"://"] &&
+      ([trimmed containsString:@" "] || ![trimmed containsString:@"."])) {
+    url_text = @"https://duckduckgo.com";
+  } else {
+    url_text = [trimmed containsString:@"://"]
+                   ? trimmed
+                   : [NSString stringWithFormat:@"https://%@", trimmed];
+  }
   NSURL* url = [NSURL URLWithString:url_text];
   NSString* host = [[url host] lowercaseString];
   return host == nil ? std::string() : StringFromNSString(host);

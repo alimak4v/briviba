@@ -111,18 +111,34 @@
 
 @end
 
+@interface BrivibaAddressField : NSTextField
+@end
+
+@implementation BrivibaAddressField
+
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSRect bounds = [self bounds];
+  NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:19.0 yRadius:19.0];
+  [[NSColor colorWithWhite:1.0 alpha:0.82] setFill];
+  [path fill];
+  [super drawRect:bounds];
+}
+
+@end
+
 namespace briviba {
 namespace {
 
 constexpr CGFloat kToolbarHeight = 42.0;
 constexpr CGFloat kButtonSize = 38.0;
 constexpr CGFloat kButtonRadius = kButtonSize / 2.0;
-constexpr CGFloat kAddressWidth = 480.0;
+constexpr CGFloat kAddressWidth = 540.0;
 constexpr CGFloat kAddressHeight = 38.0;
 constexpr CGFloat kControlSpacing = 10.0;
 
 NSColor* ControlFillColor() {
-  return [NSColor colorWithWhite:1.0 alpha:0.72];
+  return [NSColor colorWithWhite:1.0 alpha:0.84];
 }
 
 NSButton* CircularButton(NSString* symbol_name, NSString* accessibility_label) {
@@ -132,6 +148,7 @@ NSButton* CircularButton(NSString* symbol_name, NSString* accessibility_label) {
   [button setBordered:NO];
   [button setBezelStyle:NSBezelStyleRegularSquare];
   [button setImagePosition:NSImageOnly];
+  [button setContentTintColor:[NSColor colorWithWhite:0.16 alpha:0.92]];
   [button setFocusRingType:NSFocusRingTypeNone];
   [button setAccessibilityLabel:accessibility_label];
   [button setTranslatesAutoresizingMaskIntoConstraints:NO];
@@ -143,12 +160,18 @@ NSButton* CircularButton(NSString* symbol_name, NSString* accessibility_label) {
   return button;
 }
 
-NSSearchField* AddressField() {
-  NSSearchField* field = [[NSSearchField alloc] initWithFrame:NSZeroRect];
-  [field setPlaceholderString:@"Search or enter address"];
+NSTextField* AddressField() {
+  BrivibaAddressField* field = [[BrivibaAddressField alloc] initWithFrame:NSZeroRect];
+  [field setPlaceholderString:@"Search DuckDuckGo or enter address"];
   [field setFocusRingType:NSFocusRingTypeNone];
-  [field setBezeled:YES];
+  [field setBezeled:NO];
   [field setBordered:NO];
+  [field setDrawsBackground:NO];
+  [field setFont:[NSFont systemFontOfSize:14.0 weight:NSFontWeightRegular]];
+  [field setTextColor:[NSColor colorWithWhite:0.12 alpha:1.0]];
+  [field setAlignment:NSTextAlignmentCenter];
+  [field setLineBreakMode:NSLineBreakByTruncatingMiddle];
+  [field setUsesSingleLineMode:YES];
   [field setTranslatesAutoresizingMaskIntoConstraints:NO];
   [[field widthAnchor] constraintEqualToConstant:kAddressWidth].active = YES;
   [[field heightAnchor] constraintEqualToConstant:kAddressHeight].active = YES;
@@ -236,13 +259,15 @@ class Toolbar::Impl {
 
   NSView* NativeView() const { return view_; }
 
+  NSView* AddressFieldNativeView() const { return address_field_; }
+
  private:
   BrivibaToolbarActionBridge* bridge_ = nil;
   NSButton* back_button_ = nil;
   NSButton* forward_button_ = nil;
   NSButton* reload_button_ = nil;
   NSButton* menu_button_ = nil;
-  NSSearchField* address_field_ = nil;
+  NSTextField* address_field_ = nil;
   NSView* view_ = nil;
 };
 
@@ -288,6 +313,10 @@ void Toolbar::SetNavigationState(bool can_go_back, bool can_go_forward) {
 
 NSView* Toolbar::NativeView() const {
   return impl_->NativeView();
+}
+
+NSView* Toolbar::AddressFieldNativeView() const {
+  return impl_->AddressFieldNativeView();
 }
 
 }  // namespace briviba

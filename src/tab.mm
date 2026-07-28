@@ -140,6 +140,29 @@ bool HasUrlScheme(const std::string& text) {
   return false;
 }
 
+bool LooksLikeSearchQuery(const std::string& text) {
+  for (const char character : text) {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0) {
+      return true;
+    }
+  }
+  return text.find('.') == std::string::npos && !HasUrlScheme(text);
+}
+
+std::string UrlTextFromInput(const std::string& input) {
+  if (!LooksLikeSearchQuery(input)) {
+    return HasUrlScheme(input) ? input : "https://" + input;
+  }
+
+  NSString* query = [NSString stringWithUTF8String:input.c_str()];
+  NSString* encoded_query =
+      [query stringByAddingPercentEncodingWithAllowedCharacters:
+                 [NSCharacterSet URLQueryAllowedCharacterSet]];
+  NSString* url = [NSString stringWithFormat:@"https://duckduckgo.com/?q=%@", encoded_query];
+  const char* utf8 = [url UTF8String];
+  return utf8 == nullptr ? std::string("https://duckduckgo.com") : std::string(utf8);
+}
+
 }  // namespace
 
 class Tab::Impl {
@@ -156,7 +179,7 @@ class Tab::Impl {
       return false;
     }
 
-    const std::string url_text = HasUrlScheme(trimmed) ? trimmed : "https://" + trimmed;
+    const std::string url_text = UrlTextFromInput(trimmed);
     NSString* url_string = [NSString stringWithUTF8String:url_text.c_str()];
     NSURL* url = [NSURL URLWithString:url_string];
     if (url == nil || [url scheme] == nil) {

@@ -34,6 +34,7 @@ class Toolbar {
 
 #ifdef __OBJC__
   NSView* NativeView() const;
+  NSView* AddressFieldNativeView() const;
 #endif
 
  private:

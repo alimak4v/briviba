@@ -28,7 +28,8 @@ add_executable(
   src/tab.mm
   src/tab_manager.mm
   src/toolbar.mm
-  src/window_manager.cc)
+  src/window_manager.cc
+  resources/BrivibaIcon.icns)
 
 target_include_directories(Briviba PRIVATE include)
 
@@ -49,6 +50,9 @@ set_target_properties(
              MACOSX_BUNDLE_GUI_IDENTIFIER app.briviba.browser
              MACOSX_BUNDLE_INFO_PLIST
              "${CMAKE_CURRENT_SOURCE_DIR}/resources/Info.plist.in")
+
+set_source_files_properties(resources/BrivibaIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION
+                                                                  Resources)
 
 set_source_files_properties(src/main.mm src/browser_window.mm src/cookie_manager.mm
                             src/download_manager.mm src/sidebar.mm src/tab.mm src/tab_manager.mm
