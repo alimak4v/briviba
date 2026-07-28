@@ -8,8 +8,10 @@
 @interface BrivibaSidebarActionBridge : NSObject {
  @public
   briviba::Sidebar::Action new_tab_action;
+  briviba::Sidebar::Action settings_action;
 }
 - (void)newTab:(id)sender;
+- (void)openSettings:(id)sender;
 @end
 
 @implementation BrivibaSidebarActionBridge
@@ -18,6 +20,13 @@
   (void)sender;
   if (new_tab_action) {
     new_tab_action();
+  }
+}
+
+- (void)openSettings:(id)sender {
+  (void)sender;
+  if (settings_action) {
+    settings_action();
   }
 }
 
@@ -80,7 +89,10 @@ class Sidebar::Impl {
     [top_stack addArrangedSubview:new_tab_button_];
 
     NSStackView* bottom_stack = VerticalStack();
-    [bottom_stack addArrangedSubview:IconButton(@"gearshape", @"Settings")];
+    settings_button_ = IconButton(@"gearshape", @"Settings");
+    [settings_button_ setTarget:bridge_];
+    [settings_button_ setAction:@selector(openSettings:)];
+    [bottom_stack addArrangedSubview:settings_button_];
 
     [view_ addSubview:top_stack];
     [view_ addSubview:bottom_stack];
@@ -96,11 +108,14 @@ class Sidebar::Impl {
 
   void SetNewTabAction(Action action) { bridge_->new_tab_action = std::move(action); }
 
+  void SetSettingsAction(Action action) { bridge_->settings_action = std::move(action); }
+
   NSView* NativeView() const { return view_; }
 
  private:
   BrivibaSidebarActionBridge* bridge_ = nil;
   NSButton* new_tab_button_ = nil;
+  NSButton* settings_button_ = nil;
   NSVisualEffectView* view_ = nil;
 };
 
@@ -110,6 +125,10 @@ Sidebar::~Sidebar() = default;
 
 void Sidebar::SetNewTabAction(Action action) {
   impl_->SetNewTabAction(std::move(action));
+}
+
+void Sidebar::SetSettingsAction(Action action) {
+  impl_->SetSettingsAction(std::move(action));
 }
 
 NSView* Sidebar::NativeView() const {

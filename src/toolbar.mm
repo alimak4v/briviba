@@ -14,6 +14,7 @@
   briviba::Toolbar::Action reload_action;
   briviba::Toolbar::Action bookmark_action;
   briviba::Toolbar::Action menu_action;
+  briviba::Toolbar::Action settings_action;
   briviba::Toolbar::AddressSubmitAction address_submit_action;
 }
 - (void)goBack:(id)sender;
@@ -22,6 +23,7 @@
 - (void)addBookmark:(id)sender;
 - (void)openMenu:(id)sender;
 - (void)toggleSecureMode:(id)sender;
+- (void)openSettings:(id)sender;
 - (void)submitAddress:(id)sender;
 @end
 
@@ -71,8 +73,22 @@
   [secure_item setEnabled:menu_action != nullptr];
   [menu addItem:secure_item];
 
+  NSMenuItem* settings_item = [[NSMenuItem alloc] initWithTitle:@"Toggle Start Secure"
+                                                         action:@selector(openSettings:)
+                                                  keyEquivalent:@""];
+  [settings_item setTarget:self];
+  [settings_item setEnabled:settings_action != nullptr];
+  [menu addItem:settings_item];
+
   if ([sender isKindOfClass:[NSView class]]) {
     [NSMenu popUpContextMenu:menu withEvent:[NSApp currentEvent] forView:(NSView*)sender];
+  }
+}
+
+- (void)openSettings:(id)sender {
+  (void)sender;
+  if (settings_action) {
+    settings_action();
   }
 }
 
@@ -203,6 +219,8 @@ class Toolbar::Impl {
 
   void SetMenuAction(Action action) { bridge_->menu_action = std::move(action); }
 
+  void SetSettingsAction(Action action) { bridge_->settings_action = std::move(action); }
+
   void SetAddressSubmitAction(AddressSubmitAction action) {
     bridge_->address_submit_action = std::move(action);
   }
@@ -250,6 +268,10 @@ void Toolbar::SetBookmarkAction(Action action) {
 
 void Toolbar::SetMenuAction(Action action) {
   impl_->SetMenuAction(std::move(action));
+}
+
+void Toolbar::SetSettingsAction(Action action) {
+  impl_->SetSettingsAction(std::move(action));
 }
 
 void Toolbar::SetAddressSubmitAction(AddressSubmitAction action) {

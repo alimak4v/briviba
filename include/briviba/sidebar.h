@@ -21,6 +21,7 @@ class Sidebar {
   Sidebar& operator=(const Sidebar&) = delete;
 
   void SetNewTabAction(Action action);
+  void SetSettingsAction(Action action);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

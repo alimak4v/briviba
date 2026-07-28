@@ -22,6 +22,7 @@ add_executable(
   src/cookie_manager.mm
   src/download_manager.mm
   src/history_manager.cc
+  src/settings_manager.cc
   src/sidebar.mm
   src/tab.mm
   src/tab_manager.mm

@@ -4,6 +4,7 @@
 #include "briviba/cookie_manager.h"
 #include "briviba/download_manager.h"
 #include "briviba/history_manager.h"
+#include "briviba/settings_manager.h"
 #include "briviba/sidebar.h"
 #include "briviba/tab_manager.h"
 #include "briviba/toolbar.h"
@@ -67,11 +68,13 @@ class BrowserWindow::Impl {
     [window_ setContentView:content_view_];
 
     sidebar_.SetNewTabAction([this] { tab_manager_.CreateTab(); });
+    sidebar_.SetSettingsAction([this] { ToggleStartWithSecureModeSetting(); });
     toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
     toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
     toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
     toolbar_.SetBookmarkAction([this] { AddCurrentBookmark(); });
     toolbar_.SetMenuAction([this] { ToggleBrowsingMode(); });
+    toolbar_.SetSettingsAction([this] { ToggleStartWithSecureModeSetting(); });
     toolbar_.SetAddressSubmitAction([this](const std::string& text) {
       if (tab_manager_.LoadUrl(text)) {
         toolbar_.SetAddressText(text);
@@ -86,6 +89,10 @@ class BrowserWindow::Impl {
           }
         });
     tab_manager_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
+    if (settings_manager_.StartWithSecureMode()) {
+      secure_mode_ = true;
+      tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
+    }
     tab_manager_.CreateInitialTab();
 
     [content_view_ addSubview:tab_manager_.NativeView()];
@@ -128,6 +135,16 @@ class BrowserWindow::Impl {
 
   void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }
 
+  void ToggleStartWithSecureModeSetting() {
+    const bool start_secure = settings_manager_.ToggleStartWithSecureMode();
+    NSAlert* alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Briviba Settings"];
+    [alert setInformativeText:start_secure ? @"Start with Secure Mode is on."
+                                          : @"Start with Secure Mode is off."];
+    [alert addButtonWithTitle:@"OK"];
+    [alert beginSheetModalForWindow:window_ completionHandler:nil];
+  }
+
   void ApplyPageColor(Tab::PageColor color) {
     NSColor* page_color = [NSColor colorWithSRGBRed:color.red
                                              green:color.green
@@ -138,6 +155,7 @@ class BrowserWindow::Impl {
 
   BookmarkManager bookmark_manager_{BookmarkManager::DefaultDatabasePath()};
   HistoryManager history_manager_{HistoryManager::DefaultDatabasePath()};
+  SettingsManager settings_manager_{SettingsManager::DefaultDatabasePath()};
   CookieManager cookie_manager_{CookieManager::DefaultDatabasePath()};
   DownloadManager download_manager_{DownloadManager::DefaultDatabasePath()};
   Sidebar sidebar_;
