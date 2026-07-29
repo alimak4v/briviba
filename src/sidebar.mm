@@ -271,8 +271,8 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
   [item addSubview:tab_button];
 
   NSMutableArray<NSLayoutConstraint*>* constraints = [NSMutableArray arrayWithArray:@[
-    [[item widthAnchor] constraintEqualToConstant:48.0],
-    [[item heightAnchor] constraintEqualToConstant:48.0],
+    [[item widthAnchor] constraintEqualToConstant:kActiveTabButtonSize],
+    [[item heightAnchor] constraintEqualToConstant:kActiveTabButtonSize],
     [[tab_button centerXAnchor] constraintEqualToAnchor:[item centerXAnchor]],
     [[tab_button centerYAnchor] constraintEqualToAnchor:[item centerYAnchor]],
   ]];
@@ -283,8 +283,8 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
     [item setCloseButton:close_button];
     [item addSubview:close_button];
     [constraints addObjectsFromArray:@[
-      [[close_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:1.0],
-      [[close_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:-1.0],
+      [[close_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:-2.0],
+      [[close_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:2.0],
     ]];
   }
 
