@@ -46,7 +46,10 @@ namespace briviba {
 namespace {
 
 constexpr CGFloat kSidebarWidth = 86.0;
-constexpr CGFloat kSidebarCornerRadius = 0.0;
+constexpr CGFloat kDockWidth = 52.0;
+constexpr CGFloat kDockTop = 56.0;
+constexpr CGFloat kDockBottom = 16.0;
+constexpr CGFloat kSidebarCornerRadius = 16.0;
 constexpr CGFloat kIconButtonSize = 38.0;
 constexpr CGFloat kStackSpacing = 12.0;
 
@@ -62,6 +65,9 @@ NSButton* IconButton(NSString* symbol_name, NSString* accessibility_label) {
   [button setTranslatesAutoresizingMaskIntoConstraints:NO];
   [button setWantsLayer:YES];
   [[button layer] setCornerRadius:kIconButtonSize / 2.0];
+  [[button layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.34] CGColor]];
+  [[button layer] setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.38] CGColor]];
+  [[button layer] setBorderWidth:1.0];
   [[button widthAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
   [[button heightAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
   return button;
@@ -100,14 +106,28 @@ class Sidebar::Impl {
   Impl() {
     bridge_ = [[BrivibaSidebarActionBridge alloc] init];
 
-    view_ = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
-    [view_ setMaterial:NSVisualEffectMaterialSidebar];
-    [view_ setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
-    [view_ setState:NSVisualEffectStateActive];
+    view_ = [[NSView alloc] initWithFrame:NSZeroRect];
     [view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     [view_ setWantsLayer:YES];
-    [[view_ layer] setCornerRadius:kSidebarCornerRadius];
-    [[view_ layer] setMasksToBounds:YES];
+    [[view_ layer] setBackgroundColor:[[NSColor colorWithSRGBRed:0.88
+                                                           green:0.94
+                                                            blue:1.0
+                                                           alpha:0.26] CGColor]];
+
+    dock_view_ = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
+    [dock_view_ setMaterial:NSVisualEffectMaterialSidebar];
+    [dock_view_ setBlendingMode:NSVisualEffectBlendingModeWithinWindow];
+    [dock_view_ setState:NSVisualEffectStateActive];
+    [dock_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [dock_view_ setWantsLayer:YES];
+    [[dock_view_ layer] setCornerRadius:kSidebarCornerRadius];
+    [[dock_view_ layer] setMasksToBounds:YES];
+    [[dock_view_ layer] setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.48] CGColor]];
+    [[dock_view_ layer] setBorderWidth:1.0];
+    [[dock_view_ layer] setShadowColor:[[NSColor blackColor] CGColor]];
+    [[dock_view_ layer] setShadowOpacity:0.10F];
+    [[dock_view_ layer] setShadowRadius:18.0];
+    [[dock_view_ layer] setShadowOffset:CGSizeMake(0.0, -4.0)];
 
     top_stack_ = VerticalStack();
     [top_stack_ addArrangedSubview:IconButton(@"square.stack.3d.up", @"Tabs")];
@@ -124,15 +144,20 @@ class Sidebar::Impl {
     [settings_button_ setAction:@selector(openSettings:)];
     [bottom_stack addArrangedSubview:settings_button_];
 
-    [view_ addSubview:top_stack_];
-    [view_ addSubview:bottom_stack];
+    [view_ addSubview:dock_view_];
+    [dock_view_ addSubview:top_stack_];
+    [dock_view_ addSubview:bottom_stack];
 
     [NSLayoutConstraint activateConstraints:@[
       [[view_ widthAnchor] constraintEqualToConstant:kSidebarWidth],
-      [[top_stack_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:86.0],
-      [[top_stack_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
-      [[bottom_stack bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor] constant:-20.0],
-      [[bottom_stack centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
+      [[dock_view_ widthAnchor] constraintEqualToConstant:kDockWidth],
+      [[dock_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:kDockTop],
+      [[dock_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor] constant:-kDockBottom],
+      [[dock_view_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
+      [[top_stack_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor] constant:22.0],
+      [[top_stack_ centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
+      [[bottom_stack bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor] constant:-16.0],
+      [[bottom_stack centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
     ]];
   }
 
@@ -157,11 +182,12 @@ class Sidebar::Impl {
 
  private:
   BrivibaSidebarActionBridge* bridge_ = nil;
+  NSVisualEffectView* dock_view_ = nil;
   NSStackView* top_stack_ = nil;
   NSStackView* tab_stack_ = nil;
   NSButton* new_tab_button_ = nil;
   NSButton* settings_button_ = nil;
-  NSVisualEffectView* view_ = nil;
+  NSView* view_ = nil;
 };
 
 Sidebar::Sidebar() : impl_(std::make_unique<Impl>()) {}

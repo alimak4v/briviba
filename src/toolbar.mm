@@ -111,10 +111,25 @@
 
 @end
 
-@interface BrivibaAddressField : NSTextField
+@interface BrivibaAddressField : NSTextField {
+ @private
+  NSString* display_text_;
+  NSString* editing_text_;
+}
+- (void)setDisplayText:(NSString*)displayText editingText:(NSString*)editingText;
 @end
 
 @implementation BrivibaAddressField
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self != nil) {
+    display_text_ = @"";
+    editing_text_ = @"";
+    [self setEditable:NO];
+  }
+  return self;
+}
 
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
@@ -126,6 +141,28 @@
   [path setLineWidth:1.0];
   [path stroke];
   [super drawRect:bounds];
+}
+
+- (void)mouseDown:(NSEvent*)event {
+  (void)event;
+  [self setEditable:YES];
+  [self setStringValue:editing_text_ == nil ? @"" : editing_text_];
+  [[self window] makeFirstResponder:self];
+  [self selectText:nil];
+}
+
+- (void)textDidEndEditing:(NSNotification*)notification {
+  (void)notification;
+  [self setEditable:NO];
+  [self setStringValue:display_text_ == nil ? @"" : display_text_];
+}
+
+- (void)setDisplayText:(NSString*)displayText editingText:(NSString*)editingText {
+  display_text_ = [displayText copy];
+  editing_text_ = [editingText copy];
+  if (![self isEditable]) {
+    [self setStringValue:display_text_ == nil ? @"" : display_text_];
+  }
 }
 
 @end
@@ -286,7 +323,10 @@ class Toolbar::Impl {
   void SetPageIdentity(const std::string& url, const std::string& title) {
     current_url_ = url;
     current_title_ = title;
-    SetAddressText(DisplayTextForPage(current_url_, current_title_));
+    NSString* display_text =
+        [NSString stringWithUTF8String:DisplayTextForPage(current_url_, current_title_).c_str()];
+    NSString* editing_text = [NSString stringWithUTF8String:current_url_.c_str()];
+    [(BrivibaAddressField*)address_field_ setDisplayText:display_text editingText:editing_text];
   }
 
   void SetNavigationState(bool can_go_back, bool can_go_forward) {
