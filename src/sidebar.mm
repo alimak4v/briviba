@@ -196,11 +196,16 @@ namespace {
 constexpr CGFloat kSidebarWidth = 96.0;
 constexpr CGFloat kDockWidth = 64.0;
 constexpr CGFloat kDockTop = 50.0;
+constexpr CGFloat kFullscreenDockTop = 10.0;
 constexpr CGFloat kDockBottom = 14.0;
 constexpr CGFloat kSidebarCornerRadius = 15.0;
 constexpr CGFloat kIconButtonSize = 34.0;
 constexpr CGFloat kActiveTabButtonSize = 44.0;
 constexpr CGFloat kStackSpacing = 10.0;
+constexpr CGFloat kDockContentTop = 18.0;
+constexpr CGFloat kDockContentBottom = 16.0;
+constexpr CGFloat kNewTabGap = 10.0;
+constexpr CGFloat kSidebarEdgeWidth = 1.0;
 
 NSColor* DockIconTintColor() {
   return [NSColor colorWithWhite:0.06 alpha:0.78];
@@ -443,13 +448,28 @@ class Sidebar::Impl {
     [[dock_view_ layer] setShadowRadius:20.0];
     [[dock_view_ layer] setShadowOffset:CGSizeMake(0.0, -4.0)];
 
+    tab_document_view_ = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, kDockWidth, 1.0)];
+    [tab_document_view_ setWantsLayer:YES];
+
     top_stack_ = VerticalStack();
     tab_stack_ = VerticalStack();
     [top_stack_ addArrangedSubview:tab_stack_];
+
+    tab_scroll_view_ = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    [tab_scroll_view_ setBorderType:NSNoBorder];
+    [tab_scroll_view_ setDrawsBackground:NO];
+    [tab_scroll_view_ setHasVerticalScroller:NO];
+    [tab_scroll_view_ setHasHorizontalScroller:NO];
+    [tab_scroll_view_ setAutohidesScrollers:YES];
+    [tab_scroll_view_ setVerticalScrollElasticity:NSScrollElasticityAllowed];
+    [tab_scroll_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [tab_scroll_view_ setDocumentView:tab_document_view_];
+
     new_tab_button_ = IconButton(@"plus", @"New tab");
     [new_tab_button_ setTarget:bridge_];
     [new_tab_button_ setAction:@selector(newTab:)];
     [top_stack_ addArrangedSubview:new_tab_button_];
+    [tab_document_view_ addSubview:top_stack_];
 
     NSStackView* bottom_stack = VerticalStack();
     settings_button_ = IconButton(@"gearshape", @"Settings");
@@ -461,8 +481,10 @@ class Sidebar::Impl {
     [view_ addSubview:sidebar_tint_view_];
     [view_ addSubview:sidebar_edge_view_];
     [view_ addSubview:dock_view_];
-    [dock_view_ addSubview:top_stack_];
+    [dock_view_ addSubview:tab_scroll_view_];
     [dock_view_ addSubview:bottom_stack];
+    dock_top_constraint_ =
+        [[dock_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:kDockTop];
 
     [NSLayoutConstraint activateConstraints:@[
       [[view_ widthAnchor] constraintEqualToConstant:kSidebarWidth],
@@ -474,18 +496,26 @@ class Sidebar::Impl {
       [[sidebar_tint_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor]],
       [[sidebar_tint_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
       [[sidebar_tint_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor]],
-      [[sidebar_edge_view_ widthAnchor] constraintEqualToConstant:10.0],
+      [[sidebar_edge_view_ widthAnchor] constraintEqualToConstant:kSidebarEdgeWidth],
       [[sidebar_edge_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor]],
       [[sidebar_edge_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
       [[sidebar_edge_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor]],
       [[dock_view_ widthAnchor] constraintEqualToConstant:kDockWidth],
-      [[dock_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:kDockTop],
+      dock_top_constraint_,
       [[dock_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor] constant:-kDockBottom],
       [[dock_view_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
-      [[top_stack_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor] constant:18.0],
-      [[top_stack_ centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
-      [[bottom_stack bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor] constant:-16.0],
+      [[tab_scroll_view_ leadingAnchor] constraintEqualToAnchor:[dock_view_ leadingAnchor]],
+      [[tab_scroll_view_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor]
+                                                   constant:kDockContentTop],
+      [[tab_scroll_view_ trailingAnchor] constraintEqualToAnchor:[dock_view_ trailingAnchor]],
+      [[tab_scroll_view_ bottomAnchor] constraintEqualToAnchor:[bottom_stack topAnchor]
+                                                      constant:-kNewTabGap],
+      [[bottom_stack bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor]
+                                                  constant:-kDockContentBottom],
       [[bottom_stack centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
+      [[top_stack_ topAnchor] constraintEqualToAnchor:[tab_document_view_ topAnchor]],
+      [[top_stack_ centerXAnchor] constraintEqualToAnchor:[tab_document_view_ centerXAnchor]],
+      [[top_stack_ bottomAnchor] constraintEqualToAnchor:[tab_document_view_ bottomAnchor]],
     ]];
     ApplyAppearance();
   }
@@ -518,6 +548,7 @@ class Sidebar::Impl {
       [tab_stack_ addArrangedSubview:SiteTabItem(index, tabs[index], index == active_index,
                                                 tabs.size() > 1, bridge_)];
     }
+    UpdateTabDocumentFrame(tabs.size());
   }
 
   void SetFullscreenAppearance(bool fullscreen) {
@@ -533,6 +564,7 @@ class Sidebar::Impl {
  private:
   void ApplyAppearance() {
     if (fullscreen_) {
+      [dock_top_constraint_ setConstant:kFullscreenDockTop];
       [sidebar_blur_view_ setHidden:YES];
       [[sidebar_tint_view_ layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:1.0]
                                                          CGColor]];
@@ -545,6 +577,7 @@ class Sidebar::Impl {
       return;
     }
 
+    [dock_top_constraint_ setConstant:kDockTop];
     [sidebar_blur_view_ setHidden:NO];
     [dock_view_ setMaterial:NSVisualEffectMaterialPopover];
     [[sidebar_tint_view_ layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.50]
@@ -556,11 +589,23 @@ class Sidebar::Impl {
     [[dock_view_ layer] setShadowOpacity:0.08F];
   }
 
+  void UpdateTabDocumentFrame(size_t tab_count) {
+    const CGFloat height =
+        (tab_count == 0 ? 0.0
+                        : tab_count * kActiveTabButtonSize +
+                              (tab_count - 1) * kStackSpacing) +
+        kStackSpacing + kIconButtonSize;
+    [tab_document_view_ setFrame:NSMakeRect(0.0, 0.0, kDockWidth, height)];
+  }
+
   BrivibaSidebarActionBridge* bridge_ = nil;
   NSVisualEffectView* sidebar_blur_view_ = nil;
   NSView* sidebar_tint_view_ = nil;
   NSView* sidebar_edge_view_ = nil;
   NSVisualEffectView* dock_view_ = nil;
+  NSLayoutConstraint* dock_top_constraint_ = nil;
+  NSScrollView* tab_scroll_view_ = nil;
+  NSView* tab_document_view_ = nil;
   NSStackView* top_stack_ = nil;
   NSStackView* tab_stack_ = nil;
   NSButton* new_tab_button_ = nil;
