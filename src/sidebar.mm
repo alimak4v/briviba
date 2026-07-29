@@ -13,6 +13,8 @@
   briviba::Sidebar::Action settings_action;
   briviba::Sidebar::SelectTabAction select_tab_action;
   briviba::Sidebar::CloseTabAction close_tab_action;
+  briviba::Sidebar::TabAction back_tab_action;
+  briviba::Sidebar::TabAction forward_tab_action;
   briviba::Sidebar::TabAction reload_tab_action;
   briviba::Sidebar::TabAction edit_tab_address_action;
 }
@@ -20,6 +22,8 @@
 - (void)openSettings:(id)sender;
 - (void)selectTab:(id)sender;
 - (void)closeTab:(id)sender;
+- (void)backTab:(id)sender;
+- (void)forwardTab:(id)sender;
 - (void)reloadTab:(id)sender;
 - (void)editTabAddress:(id)sender;
 @end
@@ -54,6 +58,20 @@
   close_tab_action(static_cast<size_t>([sender tag]));
 }
 
+- (void)backTab:(id)sender {
+  if (!back_tab_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  back_tab_action(static_cast<size_t>([sender tag]));
+}
+
+- (void)forwardTab:(id)sender {
+  if (!forward_tab_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  forward_tab_action(static_cast<size_t>([sender tag]));
+}
+
 - (void)reloadTab:(id)sender {
   if (!reload_tab_action || ![sender respondsToSelector:@selector(tag)]) {
     return;
@@ -72,6 +90,22 @@
 
 NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id target) {
   NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Tab"];
+
+  NSMenuItem* back_item = [[NSMenuItem alloc] initWithTitle:@"Back"
+                                                     action:@selector(backTab:)
+                                              keyEquivalent:@""];
+  [back_item setTarget:target];
+  [back_item setTag:tab_index];
+  [menu addItem:back_item];
+
+  NSMenuItem* forward_item = [[NSMenuItem alloc] initWithTitle:@"Forward"
+                                                        action:@selector(forwardTab:)
+                                                 keyEquivalent:@""];
+  [forward_item setTarget:target];
+  [forward_item setTag:tab_index];
+  [menu addItem:forward_item];
+
+  [menu addItem:[NSMenuItem separatorItem]];
 
   NSMenuItem* address_item = [[NSMenuItem alloc] initWithTitle:@"Edit Address..."
                                                         action:@selector(editTabAddress:)
@@ -464,6 +498,10 @@ class Sidebar::Impl {
 
   void SetCloseTabAction(CloseTabAction action) { bridge_->close_tab_action = std::move(action); }
 
+  void SetBackTabAction(TabAction action) { bridge_->back_tab_action = std::move(action); }
+
+  void SetForwardTabAction(TabAction action) { bridge_->forward_tab_action = std::move(action); }
+
   void SetReloadTabAction(TabAction action) { bridge_->reload_tab_action = std::move(action); }
 
   void SetEditTabAddressAction(TabAction action) {
@@ -549,6 +587,14 @@ void Sidebar::SetSelectTabAction(SelectTabAction action) {
 
 void Sidebar::SetCloseTabAction(CloseTabAction action) {
   impl_->SetCloseTabAction(std::move(action));
+}
+
+void Sidebar::SetBackTabAction(TabAction action) {
+  impl_->SetBackTabAction(std::move(action));
+}
+
+void Sidebar::SetForwardTabAction(TabAction action) {
+  impl_->SetForwardTabAction(std::move(action));
 }
 
 void Sidebar::SetReloadTabAction(TabAction action) {

@@ -219,6 +219,8 @@ class BrowserWindow::Impl {
     sidebar_.SetSettingsAction([this] { ShowSettingsWindow(); });
     sidebar_.SetSelectTabAction([this](size_t index) { tab_manager_.SelectTab(index); });
     sidebar_.SetCloseTabAction([this](size_t index) { tab_manager_.CloseTab(index); });
+    sidebar_.SetBackTabAction([this](size_t index) { GoBackTab(index); });
+    sidebar_.SetForwardTabAction([this](size_t index) { GoForwardTab(index); });
     sidebar_.SetReloadTabAction([this](size_t index) { ReloadTab(index); });
     sidebar_.SetEditTabAddressAction([this](size_t index) { ShowAddressEditor(index); });
     tab_manager_.SetNavigationStateCallback(
@@ -294,6 +296,16 @@ class BrowserWindow::Impl {
   void CreateNewTab() {
     tab_manager_.CreateTab();
     tab_manager_.LoadUrl(kDefaultStartUrl);
+  }
+
+  void GoBackTab(size_t index) {
+    tab_manager_.SelectTab(index);
+    tab_manager_.GoBack();
+  }
+
+  void GoForwardTab(size_t index) {
+    tab_manager_.SelectTab(index);
+    tab_manager_.GoForward();
   }
 
   void ReloadTab(size_t index) {

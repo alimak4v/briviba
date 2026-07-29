@@ -36,6 +36,8 @@ class Sidebar {
   void SetSettingsAction(Action action);
   void SetSelectTabAction(SelectTabAction action);
   void SetCloseTabAction(CloseTabAction action);
+  void SetBackTabAction(TabAction action);
+  void SetForwardTabAction(TabAction action);
   void SetReloadTabAction(TabAction action);
   void SetEditTabAddressAction(TabAction action);
   void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
