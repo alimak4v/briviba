@@ -16,6 +16,7 @@
   briviba::DownloadManager* download_manager;
 }
 - (void)emitNavigationStateForWebView:(WKWebView*)web_view;
+- (void)emitFaviconNavigationStateForWebView:(WKWebView*)web_view;
 - (void)emitPageColorForWebView:(WKWebView*)web_view;
 @end
 
@@ -29,6 +30,7 @@
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
   (void)navigation;
   [self emitNavigationStateForWebView:webView];
+  [self emitFaviconNavigationStateForWebView:webView];
   [self emitPageColorForWebView:webView];
 }
 
@@ -64,7 +66,41 @@
   const char* title_utf8 = [title UTF8String];
   navigation_state_callback([web_view canGoBack], [web_view canGoForward],
                             utf8 == nullptr ? std::string() : std::string(utf8),
-                            title_utf8 == nullptr ? std::string() : std::string(title_utf8));
+                            title_utf8 == nullptr ? std::string() : std::string(title_utf8),
+                            std::string());
+}
+
+- (void)emitFaviconNavigationStateForWebView:(WKWebView*)web_view {
+  if (!navigation_state_callback) {
+    return;
+  }
+
+  NSString* script =
+      @"(() => {"
+       "const links = Array.from(document.querySelectorAll('link[rel]'));"
+       "const icon = links.find((link) => /(^|\\s)(icon|shortcut icon|apple-touch-icon)(\\s|$)/i"
+       ".test(link.rel) && link.href);"
+       "return icon ? new URL(icon.href, location.href).href : '';"
+       "})()";
+  [web_view evaluateJavaScript:script
+             completionHandler:^(id result, NSError* error) {
+               if (error != nil || ![result isKindOfClass:[NSString class]]) {
+                 return;
+               }
+
+               NSURL* url = [web_view URL];
+               NSString* absolute_string = url == nil ? @"" : [url absoluteString];
+               NSString* title = [web_view title] == nil ? @"" : [web_view title];
+               NSString* favicon_url = (NSString*)result;
+               const char* utf8 = [absolute_string UTF8String];
+               const char* title_utf8 = [title UTF8String];
+               const char* favicon_utf8 = [favicon_url UTF8String];
+               navigation_state_callback(
+                   [web_view canGoBack], [web_view canGoForward],
+                   utf8 == nullptr ? std::string() : std::string(utf8),
+                   title_utf8 == nullptr ? std::string() : std::string(title_utf8),
+                   favicon_utf8 == nullptr ? std::string() : std::string(favicon_utf8));
+             }];
 }
 
 - (void)emitPageColorForWebView:(WKWebView*)web_view {

@@ -55,6 +55,8 @@ class SettingsManager::Impl {
 
   bool StartWithSecureMode() const { return BoolValue(kStartWithSecureModeKey); }
 
+  void SetStartWithSecureMode(bool value) { SetBoolValue(kStartWithSecureModeKey, value); }
+
   bool ToggleStartWithSecureMode() {
     const bool next_value = !StartWithSecureMode();
     SetBoolValue(kStartWithSecureModeKey, next_value);
@@ -130,6 +132,10 @@ std::filesystem::path SettingsManager::DefaultDatabasePath() {
 
 bool SettingsManager::StartWithSecureMode() const {
   return impl_->StartWithSecureMode();
+}
+
+void SettingsManager::SetStartWithSecureMode(bool value) {
+  impl_->SetStartWithSecureMode(value);
 }
 
 bool SettingsManager::ToggleStartWithSecureMode() {

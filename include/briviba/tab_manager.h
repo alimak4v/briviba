@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "briviba/tab.h"
 
@@ -21,9 +22,16 @@ class TabManager {
  public:
   enum class BrowsingMode { kNormal, kSecure };
 
+  struct TabState {
+    std::string url;
+    std::string title;
+    std::string favicon_url;
+  };
+
   using NavigationStateCallback = Tab::NavigationStateCallback;
   using PageColorCallback = Tab::PageColorCallback;
-  using TabStateCallback = std::function<void(size_t tab_count, size_t active_index)>;
+  using TabStateCallback =
+      std::function<void(const std::vector<TabState>& tabs, size_t active_index)>;
 
   TabManager(CookieManager& cookie_manager, DownloadManager& download_manager);
   ~TabManager();
@@ -34,6 +42,7 @@ class TabManager {
   void CreateInitialTab();
   void CreateTab();
   void SelectTab(size_t index);
+  void CloseTab(size_t index);
   bool LoadUrl(const std::string& text);
   std::string CurrentUrl() const;
   void GoBack();

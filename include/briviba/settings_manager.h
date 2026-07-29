@@ -18,6 +18,7 @@ class SettingsManager {
   static std::filesystem::path DefaultDatabasePath();
 
   bool StartWithSecureMode() const;
+  void SetStartWithSecureMode(bool value);
   bool ToggleStartWithSecureMode();
 
  private:

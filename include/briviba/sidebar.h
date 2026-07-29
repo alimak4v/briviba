@@ -4,6 +4,8 @@
 #include <functional>
 #include <memory>
 #include <cstddef>
+#include <string>
+#include <vector>
 
 #ifdef __OBJC__
 @class NSView;
@@ -13,8 +15,15 @@ namespace briviba {
 
 class Sidebar {
  public:
+  struct TabState {
+    std::string url;
+    std::string title;
+    std::string favicon_url;
+  };
+
   using Action = std::function<void()>;
   using SelectTabAction = std::function<void(size_t index)>;
+  using CloseTabAction = std::function<void(size_t index)>;
 
   Sidebar();
   ~Sidebar();
@@ -25,7 +34,9 @@ class Sidebar {
   void SetNewTabAction(Action action);
   void SetSettingsAction(Action action);
   void SetSelectTabAction(SelectTabAction action);
-  void SetTabState(size_t tab_count, size_t active_index);
+  void SetCloseTabAction(CloseTabAction action);
+  void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
+  void SetFullscreenAppearance(bool fullscreen);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

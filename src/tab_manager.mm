@@ -60,7 +60,8 @@ class TabManager::Impl {
 
   void CreateTab() {
     tabs_.push_back(
-        ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(), browsing_mode_});
+        ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(), std::string(),
+                   std::string(), std::string(), browsing_mode_});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     UnloadInactiveTabs();
@@ -74,6 +75,27 @@ class TabManager::Impl {
     }
     active_index_ = index;
     MountActiveTab();
+    UnloadInactiveTabs();
+    EmitTabState();
+  }
+
+  void CloseTab(size_t index) {
+    if (index >= tabs_.size() || tabs_.size() <= 1) {
+      return;
+    }
+
+    const bool closing_active_tab = index == active_index_;
+    tabs_.erase(tabs_.begin() + static_cast<std::vector<ManagedTab>::difference_type>(index));
+    if (active_index_ > index) {
+      --active_index_;
+    } else if (active_index_ >= tabs_.size()) {
+      active_index_ = tabs_.size() - 1;
+    }
+
+    if (closing_active_tab) {
+      MountActiveTab();
+      EmitActiveManagedNavigationState();
+    }
     UnloadInactiveTabs();
     EmitTabState();
   }
@@ -126,7 +148,12 @@ class TabManager::Impl {
   void SetNavigationStateCallback(NavigationStateCallback callback) {
     navigation_state_callback_ = std::move(callback);
     for (auto& tab : tabs_) {
-      tab.tab->SetNavigationStateCallback(navigation_state_callback_);
+      tab.tab->SetNavigationStateCallback([this](bool can_go_back, bool can_go_forward,
+                                                 const std::string& url,
+                                                 const std::string& title,
+                                                 const std::string& favicon_url) {
+        HandleNavigationState(can_go_back, can_go_forward, url, title, favicon_url);
+      });
     }
   }
 
@@ -149,6 +176,9 @@ class TabManager::Impl {
   struct ManagedTab {
     std::unique_ptr<Tab> tab;
     std::string top_level_site;
+    std::string url;
+    std::string title;
+    std::string favicon_url;
     BrowsingMode browsing_mode = BrowsingMode::kNormal;
   };
 
@@ -188,7 +218,11 @@ class TabManager::Impl {
       data_store = cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
     }
     auto tab = std::make_unique<Tab>(data_store, download_manager_);
-    tab->SetNavigationStateCallback(navigation_state_callback_);
+    tab->SetNavigationStateCallback([this](bool can_go_back, bool can_go_forward,
+                                           const std::string& url, const std::string& title,
+                                           const std::string& favicon_url) {
+      HandleNavigationState(can_go_back, can_go_forward, url, title, favicon_url);
+    });
     tab->SetPageColorCallback(page_color_callback_);
     return tab;
   }
@@ -197,6 +231,9 @@ class TabManager::Impl {
     ManagedTab managed_tab{
         CreateTabForTopLevelSite(top_level_site),
         top_level_site,
+        std::string(),
+        std::string(),
+        std::string(),
         browsing_mode_,
     };
     if (tabs_.empty()) {
@@ -238,7 +275,35 @@ class TabManager::Impl {
 
   void EmitTabState() {
     if (tab_state_callback_) {
-      tab_state_callback_(tabs_.size(), active_index_);
+      std::vector<TabManager::TabState> tab_states;
+      tab_states.reserve(tabs_.size());
+      for (const auto& tab : tabs_) {
+        tab_states.push_back(TabManager::TabState{tab.url, tab.title, tab.favicon_url});
+      }
+      tab_state_callback_(tab_states, active_index_);
+    }
+  }
+
+  void EmitActiveManagedNavigationState() {
+    if (!navigation_state_callback_ || tabs_.empty() || active_index_ >= tabs_.size()) {
+      return;
+    }
+    const ManagedTab& tab = tabs_[active_index_];
+    navigation_state_callback_(false, false, tab.url, tab.title, tab.favicon_url);
+  }
+
+  void HandleNavigationState(bool can_go_back, bool can_go_forward, const std::string& url,
+                             const std::string& title, const std::string& favicon_url) {
+    if (!tabs_.empty() && active_index_ < tabs_.size()) {
+      tabs_[active_index_].url = url;
+      tabs_[active_index_].title = title;
+      if (!favicon_url.empty()) {
+        tabs_[active_index_].favicon_url = favicon_url;
+      }
+      EmitTabState();
+    }
+    if (navigation_state_callback_) {
+      navigation_state_callback_(can_go_back, can_go_forward, url, title, favicon_url);
     }
   }
 
@@ -276,6 +341,10 @@ void TabManager::CreateTab() {
 
 void TabManager::SelectTab(size_t index) {
   impl_->SelectTab(index);
+}
+
+void TabManager::CloseTab(size_t index) {
+  impl_->CloseTab(index);
 }
 
 bool TabManager::LoadUrl(const std::string& text) {

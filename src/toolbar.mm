@@ -73,7 +73,7 @@
   [secure_item setEnabled:menu_action != nullptr];
   [menu addItem:secure_item];
 
-  NSMenuItem* settings_item = [[NSMenuItem alloc] initWithTitle:@"Toggle Start Secure"
+  NSMenuItem* settings_item = [[NSMenuItem alloc] initWithTitle:@"Settings..."
                                                          action:@selector(openSettings:)
                                                   keyEquivalent:@""];
   [settings_item setTarget:self];
@@ -111,6 +111,59 @@
 
 @end
 
+@interface BrivibaCircularButton : NSButton
+@end
+
+@implementation BrivibaCircularButton
+
+- (NSSize)intrinsicContentSize {
+  return NSMakeSize(36.0, 36.0);
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSRect bounds = [self bounds];
+  const CGFloat diameter = MIN(bounds.size.width, bounds.size.height);
+  NSRect circle_rect =
+      NSMakeRect(NSMidX(bounds) - diameter / 2.0, NSMidY(bounds) - diameter / 2.0, diameter,
+                 diameter);
+
+  NSBezierPath* circle = [NSBezierPath bezierPathWithOvalInRect:circle_rect];
+  [[NSColor colorWithWhite:1.0 alpha:[self isEnabled] ? 0.82 : 0.58] setFill];
+  [circle fill];
+  [[NSColor colorWithWhite:0.0 alpha:0.10] setStroke];
+  [circle setLineWidth:1.0];
+  [circle stroke];
+
+  NSImage* image = [self image];
+  if (image != nil) {
+    NSRect image_rect = NSInsetRect(circle_rect, 10.0, 10.0);
+    [image drawInRect:image_rect
+             fromRect:NSZeroRect
+            operation:NSCompositingOperationSourceOver
+             fraction:[self isEnabled] ? 0.92 : 0.36
+       respectFlipped:YES
+                hints:nil];
+    return;
+  }
+
+  NSString* title = [self title];
+  if ([title length] == 0) {
+    return;
+  }
+
+  NSDictionary* attributes = @{
+    NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold],
+    NSForegroundColorAttributeName : [NSColor colorWithWhite:0.14 alpha:0.94]
+  };
+  NSSize text_size = [title sizeWithAttributes:attributes];
+  [title drawAtPoint:NSMakePoint(NSMidX(circle_rect) - text_size.width / 2.0,
+                                 NSMidY(circle_rect) - text_size.height / 2.0)
+      withAttributes:attributes];
+}
+
+@end
+
 @interface BrivibaAddressField : NSTextField {
  @private
   NSString* display_text_;
@@ -134,19 +187,43 @@
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   NSRect bounds = [self bounds];
-  NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:19.0 yRadius:19.0];
-  [[NSColor colorWithWhite:1.0 alpha:0.82] setFill];
+  NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:18.0 yRadius:18.0];
+  [[NSColor colorWithWhite:1.0 alpha:0.78] setFill];
   [path fill];
-  [[NSColor colorWithWhite:0.0 alpha:0.12] setStroke];
+  [[NSColor colorWithWhite:0.0 alpha:0.10] setStroke];
   [path setLineWidth:1.0];
   [path stroke];
-  [super drawRect:bounds];
+
+  if ([self isEditable] || [self currentEditor] != nil) {
+    return;
+  }
+
+  NSString* text = [[self stringValue] length] == 0 ? [self placeholderString] : [self stringValue];
+  if ([text length] == 0) {
+    return;
+  }
+
+  NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+  [paragraph_style setAlignment:NSTextAlignmentCenter];
+  NSFont* font = [self font] == nil ? [NSFont systemFontOfSize:14.0] : [self font];
+  NSColor* text_color = [self textColor] == nil ? [NSColor labelColor] : [self textColor];
+  NSDictionary* attributes = @{
+    NSFontAttributeName : font,
+    NSForegroundColorAttributeName : text_color,
+    NSParagraphStyleAttributeName : paragraph_style
+  };
+  NSSize text_size = [text sizeWithAttributes:attributes];
+  NSRect text_rect =
+      NSMakeRect(12.0, NSMidY(bounds) - text_size.height / 2.0 - 0.5,
+                 bounds.size.width - 24.0, text_size.height);
+  [text drawInRect:text_rect withAttributes:attributes];
 }
 
 - (void)mouseDown:(NSEvent*)event {
   (void)event;
   [self setEditable:YES];
   [self setStringValue:editing_text_ == nil ? @"" : editing_text_];
+  [self setNeedsDisplay:YES];
   [[self window] makeFirstResponder:self];
   [self selectText:nil];
 }
@@ -155,6 +232,7 @@
   (void)notification;
   [self setEditable:NO];
   [self setStringValue:display_text_ == nil ? @"" : display_text_];
+  [self setNeedsDisplay:YES];
 }
 
 - (void)setDisplayText:(NSString*)displayText editingText:(NSString*)editingText {
@@ -163,6 +241,7 @@
   if (![self isEditable]) {
     [self setStringValue:display_text_ == nil ? @"" : display_text_];
   }
+  [self setNeedsDisplay:YES];
 }
 
 @end
@@ -170,37 +249,26 @@
 namespace briviba {
 namespace {
 
-constexpr CGFloat kToolbarHeight = 42.0;
-constexpr CGFloat kButtonSize = 38.0;
-constexpr CGFloat kButtonRadius = kButtonSize / 2.0;
+constexpr CGFloat kToolbarHeight = 40.0;
+constexpr CGFloat kButtonSize = 36.0;
 constexpr CGFloat kAddressWidth = 540.0;
-constexpr CGFloat kAddressHeight = 38.0;
+constexpr CGFloat kAddressHeight = 36.0;
 constexpr CGFloat kControlSpacing = 10.0;
-
-NSColor* ControlFillColor() {
-  return [NSColor colorWithWhite:1.0 alpha:0.84];
-}
+constexpr CGFloat kAddressCenterOffset = -54.0;
 
 NSButton* CircularButton(NSString* symbol_name, NSString* accessibility_label) {
   NSImage* image = [NSImage imageWithSystemSymbolName:symbol_name
                              accessibilityDescription:accessibility_label];
-  NSButton* button = [NSButton buttonWithImage:image target:nil action:nil];
+  NSButton* button = [[BrivibaCircularButton alloc] initWithFrame:NSZeroRect];
+  [button setImage:image];
   [button setBordered:NO];
   [button setBezelStyle:NSBezelStyleRegularSquare];
+  [button setButtonType:NSButtonTypeMomentaryChange];
   [button setImagePosition:NSImageOnly];
   [button setContentTintColor:[NSColor colorWithWhite:0.16 alpha:0.92]];
   [button setFocusRingType:NSFocusRingTypeNone];
   [button setAccessibilityLabel:accessibility_label];
   [button setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [button setWantsLayer:YES];
-  [[button layer] setCornerRadius:kButtonRadius];
-  [[button layer] setBackgroundColor:[ControlFillColor() CGColor]];
-  [[button layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.12] CGColor]];
-  [[button layer] setBorderWidth:1.0];
-  [[button layer] setShadowColor:[[NSColor blackColor] CGColor]];
-  [[button layer] setShadowOpacity:0.08F];
-  [[button layer] setShadowRadius:8.0];
-  [[button layer] setShadowOffset:CGSizeMake(0.0, -2.0)];
   [[button widthAnchor] constraintEqualToConstant:kButtonSize].active = YES;
   [[button heightAnchor] constraintEqualToConstant:kButtonSize].active = YES;
   return button;
@@ -222,9 +290,7 @@ std::string HostFromUrl(const std::string& url) {
 }
 
 std::string DisplayTextForPage(const std::string& url, const std::string& title) {
-  if (!title.empty()) {
-    return title;
-  }
+  (void)title;
   return HostFromUrl(url);
 }
 
@@ -293,7 +359,8 @@ class Toolbar::Impl {
       [[reload_button_ leadingAnchor] constraintEqualToAnchor:[forward_button_ trailingAnchor]
                                                      constant:kControlSpacing],
       [[reload_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
-      [[address_field_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
+      [[address_field_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]
+                                                      constant:kAddressCenterOffset],
       [[address_field_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],
       [[menu_button_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
       [[menu_button_ centerYAnchor] constraintEqualToAnchor:[view_ centerYAnchor]],

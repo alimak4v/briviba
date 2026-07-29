@@ -25,7 +25,7 @@ class Tab {
 
   using NavigationStateCallback =
       std::function<void(bool can_go_back, bool can_go_forward, const std::string& url,
-                         const std::string& title)>;
+                         const std::string& title, const std::string& favicon_url)>;
   using PageColorCallback = std::function<void(PageColor color)>;
 
 #ifdef __OBJC__
