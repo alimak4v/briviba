@@ -52,6 +52,54 @@
 
 @end
 
+@interface BrivibaSidebarTabItemView : NSView
+@property(nonatomic, strong) NSButton* closeButton;
+@property(nonatomic) BOOL closeEnabled;
+@end
+
+@implementation BrivibaSidebarTabItemView {
+  NSTrackingArea* tracking_area_;
+}
+
+- (void)updateTrackingAreas {
+  if (tracking_area_ != nil) {
+    [self removeTrackingArea:tracking_area_];
+  }
+
+  NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp |
+                                  NSTrackingInVisibleRect;
+  tracking_area_ = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                options:options
+                                                  owner:self
+                                               userInfo:nil];
+  [self addTrackingArea:tracking_area_];
+  [super updateTrackingAreas];
+}
+
+- (void)setCloseButton:(NSButton*)closeButton {
+  _closeButton = closeButton;
+  [self updateCloseButtonVisibility:NO];
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+  (void)event;
+  [self updateCloseButtonVisibility:YES];
+}
+
+- (void)mouseExited:(NSEvent*)event {
+  (void)event;
+  [self updateCloseButtonVisibility:NO];
+}
+
+- (void)updateCloseButtonVisibility:(BOOL)visible {
+  if (_closeButton == nil) {
+    return;
+  }
+  [_closeButton setHidden:!(_closeEnabled && visible)];
+}
+
+@end
+
 namespace briviba {
 namespace {
 
@@ -216,24 +264,27 @@ NSButton* CloseTabButton(size_t index, id target) {
 
 NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, bool close_enabled,
                    id target) {
-  NSView* item = [[NSView alloc] initWithFrame:NSZeroRect];
+  BrivibaSidebarTabItemView* item = [[BrivibaSidebarTabItemView alloc] initWithFrame:NSZeroRect];
+  [item setCloseEnabled:close_enabled ? YES : NO];
   [item setTranslatesAutoresizingMaskIntoConstraints:NO];
   NSButton* tab_button = SiteTabButton(index, tab, active, target);
   [item addSubview:tab_button];
 
   NSMutableArray<NSLayoutConstraint*>* constraints = [NSMutableArray arrayWithArray:@[
-    [[item widthAnchor] constraintEqualToConstant:kActiveTabButtonSize],
-    [[item heightAnchor] constraintEqualToConstant:kActiveTabButtonSize],
+    [[item widthAnchor] constraintEqualToConstant:48.0],
+    [[item heightAnchor] constraintEqualToConstant:48.0],
     [[tab_button centerXAnchor] constraintEqualToAnchor:[item centerXAnchor]],
     [[tab_button centerYAnchor] constraintEqualToAnchor:[item centerYAnchor]],
   ]];
 
-  if (active && close_enabled) {
+  if (close_enabled) {
     NSButton* close_button = CloseTabButton(index, target);
+    [close_button setHidden:YES];
+    [item setCloseButton:close_button];
     [item addSubview:close_button];
     [constraints addObjectsFromArray:@[
-      [[close_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:-2.0],
-      [[close_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:2.0],
+      [[close_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:1.0],
+      [[close_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:-1.0],
     ]];
   }
 
