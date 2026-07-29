@@ -3,6 +3,7 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 
@@ -45,13 +46,18 @@
 namespace briviba {
 namespace {
 
-constexpr CGFloat kSidebarWidth = 86.0;
-constexpr CGFloat kDockWidth = 52.0;
-constexpr CGFloat kDockTop = 56.0;
-constexpr CGFloat kDockBottom = 16.0;
-constexpr CGFloat kSidebarCornerRadius = 16.0;
-constexpr CGFloat kIconButtonSize = 38.0;
+constexpr CGFloat kSidebarWidth = 96.0;
+constexpr CGFloat kDockWidth = 64.0;
+constexpr CGFloat kDockTop = 58.0;
+constexpr CGFloat kDockBottom = 18.0;
+constexpr CGFloat kSidebarCornerRadius = 15.0;
+constexpr CGFloat kIconButtonSize = 34.0;
 constexpr CGFloat kStackSpacing = 12.0;
+constexpr size_t kReferenceTabSlots = 4;
+
+NSColor* DockIconTintColor() {
+  return [NSColor colorWithWhite:0.04 alpha:0.86];
+}
 
 NSButton* IconButton(NSString* symbol_name, NSString* accessibility_label) {
   NSImage* image = [NSImage imageWithSystemSymbolName:symbol_name
@@ -60,33 +66,92 @@ NSButton* IconButton(NSString* symbol_name, NSString* accessibility_label) {
   [button setBordered:NO];
   [button setBezelStyle:NSBezelStyleRegularSquare];
   [button setImagePosition:NSImageOnly];
+  [button setContentTintColor:DockIconTintColor()];
   [button setFocusRingType:NSFocusRingTypeNone];
   [button setAccessibilityLabel:accessibility_label];
   [button setTranslatesAutoresizingMaskIntoConstraints:NO];
   [button setWantsLayer:YES];
   [[button layer] setCornerRadius:kIconButtonSize / 2.0];
-  [[button layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.34] CGColor]];
-  [[button layer] setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.38] CGColor]];
-  [[button layer] setBorderWidth:1.0];
   [[button widthAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
   [[button heightAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
   return button;
 }
 
-NSButton* TabButton(size_t index, bool active, id target) {
-  NSString* symbol_name = active ? @"circle.inset.filled" : @"circle";
-  NSString* label = [NSString stringWithFormat:@"Tab %zu", index + 1];
-  NSButton* button = IconButton(symbol_name, label);
-  [button setTarget:target];
-  [button setAction:@selector(selectTab:)];
-  [button setTag:static_cast<NSInteger>(index)];
-  [button setContentTintColor:[NSColor colorWithWhite:0.1 alpha:active ? 0.94 : 0.42]];
+NSButton* BaseTabButton(size_t index, bool enabled, bool active, id target) {
+  NSButton* button = [NSButton buttonWithTitle:@"" target:enabled ? target : nil action:nil];
+  [button setBordered:NO];
+  [button setBezelStyle:NSBezelStyleRegularSquare];
+  [button setFocusRingType:NSFocusRingTypeNone];
+  [button setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [button setWantsLayer:YES];
+  [[button layer] setCornerRadius:kIconButtonSize / 2.0];
+  [[button layer] setMasksToBounds:YES];
   if (active) {
-    [[button layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.58] CGColor]];
-    [[button layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.10] CGColor]];
-    [[button layer] setBorderWidth:1.0];
+    [[button layer] setShadowColor:[[NSColor blackColor] CGColor]];
+    [[button layer] setShadowOpacity:0.12F];
+    [[button layer] setShadowRadius:8.0];
+    [[button layer] setShadowOffset:CGSizeMake(0.0, -2.0)];
+  }
+  [[button widthAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
+  [[button heightAnchor] constraintEqualToConstant:kIconButtonSize].active = YES;
+  [button setTag:static_cast<NSInteger>(index)];
+  [button setEnabled:enabled];
+  if (enabled) {
+    [button setTarget:target];
+    [button setAction:@selector(selectTab:)];
   }
   return button;
+}
+
+NSButton* RedPlayTabButton(size_t index, bool enabled, bool active, id target) {
+  NSButton* button = BaseTabButton(index, enabled, active, target);
+  NSImage* image = [NSImage imageWithSystemSymbolName:@"play.fill"
+                             accessibilityDescription:@"Tab"];
+  [button setImage:image];
+  [button setImagePosition:NSImageOnly];
+  [button setContentTintColor:[NSColor whiteColor]];
+  [[button layer] setBackgroundColor:[[NSColor colorWithSRGBRed:1.0
+                                                          green:0.04
+                                                           blue:0.04
+                                                          alpha:1.0] CGColor]];
+  [[button layer] setCornerRadius:7.0];
+  [[button layer] setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.42] CGColor]];
+  [[button layer] setBorderWidth:1.0];
+  return button;
+}
+
+NSButton* LetterTabButton(size_t index, NSString* title, bool enabled, bool active, id target) {
+  NSButton* button = BaseTabButton(index, enabled, active, target);
+  [button setTitle:title];
+  NSFont* font = [NSFont fontWithName:@"Times New Roman" size:20.0];
+  [button setFont:font == nil ? [NSFont systemFontOfSize:20.0 weight:NSFontWeightSemibold] : font];
+  [button setContentTintColor:DockIconTintColor()];
+  [[button layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:active ? 0.88 : 0.70]
+                                          CGColor]];
+  [[button layer] setBorderColor:[[NSColor colorWithWhite:1.0 alpha:0.55] CGColor]];
+  [[button layer] setBorderWidth:1.0];
+  return button;
+}
+
+NSButton* NumericTabButton(size_t index, bool enabled, bool active, id target) {
+  NSString* title = [NSString stringWithFormat:@"%zu", index + 1];
+  return LetterTabButton(index, title, enabled, active, target);
+}
+
+NSButton* TabButton(size_t index, bool enabled, bool active, id target) {
+  if (index == 0) {
+    return RedPlayTabButton(index, enabled, active, target);
+  }
+  if (index == 1) {
+    return LetterTabButton(index, @"W", enabled, active, target);
+  }
+  if (index == 2) {
+    return LetterTabButton(index, @"X", enabled, active, target);
+  }
+  if (index == 3) {
+    return LetterTabButton(index, @"G", enabled, active, target);
+  }
+  return NumericTabButton(index, enabled, active, target);
 }
 
 NSStackView* VerticalStack() {
@@ -109,10 +174,10 @@ class Sidebar::Impl {
     view_ = [[NSView alloc] initWithFrame:NSZeroRect];
     [view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     [view_ setWantsLayer:YES];
-    [[view_ layer] setBackgroundColor:[[NSColor colorWithSRGBRed:0.88
-                                                           green:0.94
+    [[view_ layer] setBackgroundColor:[[NSColor colorWithSRGBRed:0.90
+                                                           green:0.95
                                                             blue:1.0
-                                                           alpha:0.26] CGColor]];
+                                                           alpha:0.34] CGColor]];
 
     dock_view_ = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
     [dock_view_ setMaterial:NSVisualEffectMaterialSidebar];
@@ -130,7 +195,6 @@ class Sidebar::Impl {
     [[dock_view_ layer] setShadowOffset:CGSizeMake(0.0, -4.0)];
 
     top_stack_ = VerticalStack();
-    [top_stack_ addArrangedSubview:IconButton(@"square.stack.3d.up", @"Tabs")];
     tab_stack_ = VerticalStack();
     [top_stack_ addArrangedSubview:tab_stack_];
     new_tab_button_ = IconButton(@"plus", @"New tab");
@@ -143,6 +207,7 @@ class Sidebar::Impl {
     [settings_button_ setTarget:bridge_];
     [settings_button_ setAction:@selector(openSettings:)];
     [bottom_stack addArrangedSubview:settings_button_];
+    [bottom_stack addArrangedSubview:IconButton(@"arrow.down.to.line", @"Downloads")];
 
     [view_ addSubview:dock_view_];
     [dock_view_ addSubview:top_stack_];
@@ -154,7 +219,7 @@ class Sidebar::Impl {
       [[dock_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:kDockTop],
       [[dock_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor] constant:-kDockBottom],
       [[dock_view_ centerXAnchor] constraintEqualToAnchor:[view_ centerXAnchor]],
-      [[top_stack_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor] constant:22.0],
+      [[top_stack_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor] constant:18.0],
       [[top_stack_ centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
       [[bottom_stack bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor] constant:-16.0],
       [[bottom_stack centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
@@ -173,8 +238,9 @@ class Sidebar::Impl {
       [subview removeFromSuperview];
     }
 
-    for (size_t index = 0; index < tab_count; ++index) {
-      [tab_stack_ addArrangedSubview:TabButton(index, index == active_index, bridge_)];
+    const size_t visible_count = std::max(tab_count, kReferenceTabSlots);
+    for (size_t index = 0; index < visible_count; ++index) {
+      [tab_stack_ addArrangedSubview:TabButton(index, index < tab_count, index == active_index, bridge_)];
     }
   }
 
