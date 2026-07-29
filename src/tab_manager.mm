@@ -64,7 +64,18 @@ class TabManager::Impl {
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     UnloadInactiveTabs();
+    EmitTabState();
     EmitDefaultPageColor();
+  }
+
+  void SelectTab(size_t index) {
+    if (index >= tabs_.size() || index == active_index_) {
+      return;
+    }
+    active_index_ = index;
+    MountActiveTab();
+    UnloadInactiveTabs();
+    EmitTabState();
   }
 
   bool LoadUrl(const std::string& text) {
@@ -125,6 +136,11 @@ class TabManager::Impl {
       tab.tab->SetPageColorCallback(page_color_callback_);
     }
     EmitDefaultPageColor();
+  }
+
+  void SetTabStateCallback(TabStateCallback callback) {
+    tab_state_callback_ = std::move(callback);
+    EmitTabState();
   }
 
   NSView* NativeView() const { return container_view_; }
@@ -191,6 +207,7 @@ class TabManager::Impl {
     }
     MountActiveTab();
     UnloadInactiveTabs();
+    EmitTabState();
   }
 
   void MountActiveTab() {
@@ -219,6 +236,12 @@ class TabManager::Impl {
     }
   }
 
+  void EmitTabState() {
+    if (tab_state_callback_) {
+      tab_state_callback_(tabs_.size(), active_index_);
+    }
+  }
+
   void UnloadInactiveTabs() {
     for (size_t index = 0; index < tabs_.size(); ++index) {
       if (index != active_index_) {
@@ -229,6 +252,7 @@ class TabManager::Impl {
 
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
+  TabStateCallback tab_state_callback_;
   CookieManager& cookie_manager_;
   DownloadManager& download_manager_;
   BrowsingMode browsing_mode_ = BrowsingMode::kNormal;
@@ -248,6 +272,10 @@ void TabManager::CreateInitialTab() {
 
 void TabManager::CreateTab() {
   impl_->CreateTab();
+}
+
+void TabManager::SelectTab(size_t index) {
+  impl_->SelectTab(index);
 }
 
 bool TabManager::LoadUrl(const std::string& text) {
@@ -280,6 +308,10 @@ void TabManager::SetNavigationStateCallback(NavigationStateCallback callback) {
 
 void TabManager::SetPageColorCallback(PageColorCallback callback) {
   impl_->SetPageColorCallback(std::move(callback));
+}
+
+void TabManager::SetTabStateCallback(TabStateCallback callback) {
+  impl_->SetTabStateCallback(std::move(callback));
 }
 
 NSView* TabManager::NativeView() const {

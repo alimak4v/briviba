@@ -1,6 +1,8 @@
 #ifndef BRIVIBA_TAB_MANAGER_H_
 #define BRIVIBA_TAB_MANAGER_H_
 
+#include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -21,6 +23,7 @@ class TabManager {
 
   using NavigationStateCallback = Tab::NavigationStateCallback;
   using PageColorCallback = Tab::PageColorCallback;
+  using TabStateCallback = std::function<void(size_t tab_count, size_t active_index)>;
 
   TabManager(CookieManager& cookie_manager, DownloadManager& download_manager);
   ~TabManager();
@@ -30,6 +33,7 @@ class TabManager {
 
   void CreateInitialTab();
   void CreateTab();
+  void SelectTab(size_t index);
   bool LoadUrl(const std::string& text);
   std::string CurrentUrl() const;
   void GoBack();
@@ -38,6 +42,7 @@ class TabManager {
   void SetBrowsingMode(BrowsingMode mode);
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
+  void SetTabStateCallback(TabStateCallback callback);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

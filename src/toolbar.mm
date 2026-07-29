@@ -122,6 +122,9 @@
   NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:bounds xRadius:19.0 yRadius:19.0];
   [[NSColor colorWithWhite:1.0 alpha:0.82] setFill];
   [path fill];
+  [[NSColor colorWithWhite:0.0 alpha:0.12] setStroke];
+  [path setLineWidth:1.0];
+  [path stroke];
   [super drawRect:bounds];
 }
 
@@ -155,9 +158,37 @@ NSButton* CircularButton(NSString* symbol_name, NSString* accessibility_label) {
   [button setWantsLayer:YES];
   [[button layer] setCornerRadius:kButtonRadius];
   [[button layer] setBackgroundColor:[ControlFillColor() CGColor]];
+  [[button layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.12] CGColor]];
+  [[button layer] setBorderWidth:1.0];
+  [[button layer] setShadowColor:[[NSColor blackColor] CGColor]];
+  [[button layer] setShadowOpacity:0.08F];
+  [[button layer] setShadowRadius:8.0];
+  [[button layer] setShadowOffset:CGSizeMake(0.0, -2.0)];
   [[button widthAnchor] constraintEqualToConstant:kButtonSize].active = YES;
   [[button heightAnchor] constraintEqualToConstant:kButtonSize].active = YES;
   return button;
+}
+
+std::string StringFromNSString(NSString* value) {
+  const char* utf8 = [value UTF8String];
+  return utf8 == nullptr ? std::string() : std::string(utf8);
+}
+
+std::string HostFromUrl(const std::string& url) {
+  NSString* url_string = [NSString stringWithUTF8String:url.c_str()];
+  NSURL* parsed_url = [NSURL URLWithString:url_string];
+  NSString* host = [parsed_url host];
+  if (host == nil || [host length] == 0) {
+    return url;
+  }
+  return StringFromNSString(host);
+}
+
+std::string DisplayTextForPage(const std::string& url, const std::string& title) {
+  if (!title.empty()) {
+    return title;
+  }
+  return HostFromUrl(url);
 }
 
 NSTextField* AddressField() {
@@ -252,6 +283,12 @@ class Toolbar::Impl {
     [address_field_ setStringValue:[NSString stringWithUTF8String:text.c_str()]];
   }
 
+  void SetPageIdentity(const std::string& url, const std::string& title) {
+    current_url_ = url;
+    current_title_ = title;
+    SetAddressText(DisplayTextForPage(current_url_, current_title_));
+  }
+
   void SetNavigationState(bool can_go_back, bool can_go_forward) {
     [back_button_ setEnabled:can_go_back];
     [forward_button_ setEnabled:can_go_forward];
@@ -269,6 +306,8 @@ class Toolbar::Impl {
   NSButton* menu_button_ = nil;
   NSTextField* address_field_ = nil;
   NSView* view_ = nil;
+  std::string current_url_;
+  std::string current_title_;
 };
 
 Toolbar::Toolbar() : impl_(std::make_unique<Impl>()) {}
@@ -305,6 +344,10 @@ void Toolbar::SetAddressSubmitAction(AddressSubmitAction action) {
 
 void Toolbar::SetAddressText(const std::string& text) {
   impl_->SetAddressText(text);
+}
+
+void Toolbar::SetPageIdentity(const std::string& url, const std::string& title) {
+  impl_->SetPageIdentity(url, title);
 }
 
 void Toolbar::SetNavigationState(bool can_go_back, bool can_go_forward) {

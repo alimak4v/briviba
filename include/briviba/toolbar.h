@@ -30,6 +30,7 @@ class Toolbar {
   void SetSettingsAction(Action action);
   void SetAddressSubmitAction(AddressSubmitAction action);
   void SetAddressText(const std::string& text);
+  void SetPageIdentity(const std::string& url, const std::string& title);
   void SetNavigationState(bool can_go_back, bool can_go_forward);
 
 #ifdef __OBJC__

@@ -20,16 +20,16 @@ namespace {
 constexpr CGFloat kInitialWidth = 1180.0;
 constexpr CGFloat kInitialHeight = 760.0;
 constexpr CGFloat kVisibleFrameScale = 0.88;
-constexpr CGFloat kSidebarLeading = 16.0;
-constexpr CGFloat kSidebarTop = 58.0;
-constexpr CGFloat kSidebarBottom = 18.0;
-constexpr CGFloat kToolbarLeading = 138.0;
+constexpr CGFloat kSidebarLeading = 0.0;
+constexpr CGFloat kSidebarTop = 0.0;
+constexpr CGFloat kSidebarBottom = 0.0;
+constexpr CGFloat kToolbarLeading = 132.0;
 constexpr CGFloat kToolbarTop = 22.0;
-constexpr CGFloat kToolbarTrailing = 34.0;
-constexpr CGFloat kWebViewLeading = 96.0;
-constexpr CGFloat kWebViewTop = 76.0;
-constexpr CGFloat kWebViewTrailing = 16.0;
-constexpr CGFloat kWebViewBottom = 18.0;
+constexpr CGFloat kToolbarTrailing = 24.0;
+constexpr CGFloat kWebViewLeading = 86.0;
+constexpr CGFloat kWebViewTop = 72.0;
+constexpr CGFloat kWebViewTrailing = 0.0;
+constexpr CGFloat kWebViewBottom = 0.0;
 constexpr double kColorEpsilon = 0.002;
 constexpr const char* kDefaultStartUrl = "https://duckduckgo.com";
 
@@ -61,6 +61,7 @@ class BrowserWindow::Impl {
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
     [window_ setTitle:@"Briviba"];
+    [window_ setTitleVisibility:NSWindowTitleHidden];
     [window_ setTitlebarAppearsTransparent:YES];
     [window_ setMovableByWindowBackground:YES];
     [window_ setReleasedWhenClosed:NO];
@@ -72,8 +73,9 @@ class BrowserWindow::Impl {
     [[content_view_ layer] setBackgroundColor:[[NSColor windowBackgroundColor] CGColor]];
     [window_ setContentView:content_view_];
 
-    sidebar_.SetNewTabAction([this] { tab_manager_.CreateTab(); });
+    sidebar_.SetNewTabAction([this] { CreateNewTab(); });
     sidebar_.SetSettingsAction([this] { ToggleStartWithSecureModeSetting(); });
+    sidebar_.SetSelectTabAction([this](size_t index) { tab_manager_.SelectTab(index); });
     toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
     toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
     toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
@@ -86,14 +88,18 @@ class BrowserWindow::Impl {
       }
     });
     tab_manager_.SetNavigationStateCallback(
-        [this](bool can_go_back, bool can_go_forward, const std::string& url) {
+        [this](bool can_go_back, bool can_go_forward, const std::string& url,
+               const std::string& title) {
           toolbar_.SetNavigationState(can_go_back, can_go_forward);
-          toolbar_.SetAddressText(url);
+          toolbar_.SetPageIdentity(url, title);
           if (!secure_mode_) {
             history_manager_.RecordVisit(url);
           }
         });
     tab_manager_.SetPageColorCallback([this](Tab::PageColor color) { ApplyPageColor(color); });
+    tab_manager_.SetTabStateCallback([this](size_t tab_count, size_t active_index) {
+      sidebar_.SetTabState(tab_count, active_index);
+    });
     if (settings_manager_.StartWithSecureMode()) {
       secure_mode_ = true;
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
@@ -126,17 +132,22 @@ class BrowserWindow::Impl {
                                                              constant:-kToolbarTrailing],
     ]];
     tab_manager_.LoadUrl(kDefaultStartUrl);
-    toolbar_.SetAddressText(kDefaultStartUrl);
+    toolbar_.SetPageIdentity(kDefaultStartUrl, "DuckDuckGo");
   }
 
   ~Impl() { [window_ close]; }
 
   void Show() {
     [window_ makeKeyAndOrderFront:nil];
-    [window_ makeFirstResponder:toolbar_.AddressFieldNativeView()];
   }
 
  private:
+  void CreateNewTab() {
+    tab_manager_.CreateTab();
+    tab_manager_.LoadUrl(kDefaultStartUrl);
+    toolbar_.SetPageIdentity(kDefaultStartUrl, "DuckDuckGo");
+  }
+
   void ToggleBrowsingMode() {
     secure_mode_ = !secure_mode_;
     tab_manager_.SetBrowsingMode(secure_mode_ ? TabManager::BrowsingMode::kSecure

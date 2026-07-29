@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <cstddef>
 
 #ifdef __OBJC__
 @class NSView;
@@ -13,6 +14,7 @@ namespace briviba {
 class Sidebar {
  public:
   using Action = std::function<void()>;
+  using SelectTabAction = std::function<void(size_t index)>;
 
   Sidebar();
   ~Sidebar();
@@ -22,6 +24,8 @@ class Sidebar {
 
   void SetNewTabAction(Action action);
   void SetSettingsAction(Action action);
+  void SetSelectTabAction(SelectTabAction action);
+  void SetTabState(size_t tab_count, size_t active_index);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

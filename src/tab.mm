@@ -59,9 +59,12 @@
 
   NSURL* url = [web_view URL];
   NSString* absolute_string = url == nil ? @"" : [url absoluteString];
+  NSString* title = [web_view title] == nil ? @"" : [web_view title];
   const char* utf8 = [absolute_string UTF8String];
+  const char* title_utf8 = [title UTF8String];
   navigation_state_callback([web_view canGoBack], [web_view canGoForward],
-                            utf8 == nullptr ? std::string() : std::string(utf8));
+                            utf8 == nullptr ? std::string() : std::string(utf8),
+                            title_utf8 == nullptr ? std::string() : std::string(title_utf8));
 }
 
 - (void)emitPageColorForWebView:(WKWebView*)web_view {
@@ -163,6 +166,11 @@ std::string UrlTextFromInput(const std::string& input) {
   return utf8 == nullptr ? std::string("https://duckduckgo.com") : std::string(utf8);
 }
 
+NSString* SafariLikeUserAgent() {
+  return @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+          "KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+}
+
 }  // namespace
 
 class Tab::Impl {
@@ -246,7 +254,10 @@ class Tab::Impl {
     }
   }
 
-  NSView* NativeView() const { return web_view_; }
+  NSView* NativeView() {
+    EnsureLoaded();
+    return web_view_;
+  }
 
  private:
   void EnsureLoaded() {
@@ -259,6 +270,7 @@ class Tab::Impl {
       [configuration setWebsiteDataStore:website_data_store_];
     }
     web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    [web_view_ setCustomUserAgent:SafariLikeUserAgent()];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
     navigation_delegate_->download_manager = &download_manager_;
     navigation_delegate_->navigation_state_callback = navigation_state_callback_;
@@ -266,6 +278,13 @@ class Tab::Impl {
     [web_view_ setNavigationDelegate:navigation_delegate_];
     [web_view_ setAllowsBackForwardNavigationGestures:YES];
     [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
+    if (!current_url_.empty()) {
+      NSString* url_string = [NSString stringWithUTF8String:current_url_.c_str()];
+      NSURL* url = [NSURL URLWithString:url_string];
+      if (url != nil) {
+        [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
+      }
+    }
   }
 
   void EmitNavigationState() {
@@ -321,7 +340,7 @@ void Tab::SetPageColorCallback(PageColorCallback callback) {
 }
 
 NSView* Tab::NativeView() const {
-  return impl_->NativeView();
+  return const_cast<Impl*>(impl_.get())->NativeView();
 }
 
 }  // namespace briviba
