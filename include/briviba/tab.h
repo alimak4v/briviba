@@ -42,6 +42,7 @@ class Tab {
   void GoBack();
   void GoForward();
   void Reload();
+  void SetSearchEngine(const std::string& engine_id);
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
 

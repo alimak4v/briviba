@@ -19,7 +19,20 @@ std::string StringFromNSString(NSString* value) {
   return utf8 == nullptr ? std::string() : std::string(utf8);
 }
 
-std::string TopLevelSiteFromInput(const std::string& text) {
+NSString* SearchEngineHomeUrl(const std::string& engine_id) {
+  if (engine_id == "google") {
+    return @"https://www.google.com";
+  }
+  if (engine_id == "bing") {
+    return @"https://www.bing.com";
+  }
+  if (engine_id == "yandex") {
+    return @"https://yandex.ru";
+  }
+  return @"https://duckduckgo.com";
+}
+
+std::string TopLevelSiteFromInput(const std::string& text, const std::string& search_engine_id) {
   NSString* raw_text = [NSString stringWithUTF8String:text.c_str()];
   NSString* trimmed =
       [raw_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -30,7 +43,7 @@ std::string TopLevelSiteFromInput(const std::string& text) {
   NSString* url_text = nil;
   if (![trimmed containsString:@"://"] &&
       ([trimmed containsString:@" "] || ![trimmed containsString:@"."])) {
-    url_text = @"https://duckduckgo.com";
+    url_text = SearchEngineHomeUrl(search_engine_id);
   } else {
     url_text = [trimmed containsString:@"://"]
                    ? trimmed
@@ -98,7 +111,7 @@ class TabManager::Impl {
   }
 
   bool LoadUrl(const std::string& text) {
-    const std::string top_level_site = TopLevelSiteFromInput(text);
+    const std::string top_level_site = TopLevelSiteFromInput(text, search_engine_id_);
     if (!top_level_site.empty() &&
         (ActiveTopLevelSite() != top_level_site || ActiveBrowsingMode() != browsing_mode_)) {
       ReplaceActiveTabForTopLevelSite(top_level_site);
@@ -131,6 +144,16 @@ class TabManager::Impl {
     Tab* tab = ActiveTab();
     if (tab != nullptr) {
       tab->Reload();
+    }
+  }
+
+  void SetSearchEngine(const std::string& engine_id) {
+    if (search_engine_id_ == engine_id) {
+      return;
+    }
+    search_engine_id_ = engine_id;
+    for (auto& tab : tabs_) {
+      tab.tab->SetSearchEngine(search_engine_id_);
     }
   }
 
@@ -206,6 +229,7 @@ class TabManager::Impl {
       data_store = cookie_manager_.WebsiteDataStoreForTopLevelSite(top_level_site);
     }
     auto tab = std::make_unique<Tab>(data_store, download_manager_);
+    tab->SetSearchEngine(search_engine_id_);
     ConfigureTabCallbacks(tab.get());
     return tab;
   }
@@ -338,6 +362,7 @@ class TabManager::Impl {
   CookieManager& cookie_manager_;
   DownloadManager& download_manager_;
   BrowsingMode browsing_mode_ = BrowsingMode::kNormal;
+  std::string search_engine_id_ = "duckduckgo";
   std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
   NSView* container_view_ = nil;
@@ -382,6 +407,10 @@ void TabManager::GoForward() {
 
 void TabManager::Reload() {
   impl_->Reload();
+}
+
+void TabManager::SetSearchEngine(const std::string& engine_id) {
+  impl_->SetSearchEngine(engine_id);
 }
 
 void TabManager::SetBrowsingMode(BrowsingMode mode) {

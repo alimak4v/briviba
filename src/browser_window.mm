@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <string>
 #include <vector>
 
 @interface BrivibaWindowControlBridge : NSObject <NSWindowDelegate> {
@@ -71,9 +72,11 @@
 @interface BrivibaSettingsBridge : NSObject <NSWindowDelegate> {
  @public
   std::function<void(bool)> set_start_secure_action;
+  std::function<void(const std::string&)> set_search_engine_action;
   std::function<void()> settings_closed_action;
 }
 - (void)toggleStartSecure:(id)sender;
+- (void)changeSearchEngine:(id)sender;
 @end
 
 @implementation BrivibaSettingsBridge
@@ -83,6 +86,20 @@
     return;
   }
   set_start_secure_action([sender state] == NSControlStateValueOn);
+}
+
+- (void)changeSearchEngine:(id)sender {
+  if (!set_search_engine_action || ![sender respondsToSelector:@selector(selectedItem)]) {
+    return;
+  }
+
+  NSMenuItem* selected_item = [sender selectedItem];
+  id represented_object = [selected_item representedObject];
+  if (![represented_object isKindOfClass:[NSString class]]) {
+    return;
+  }
+  const char* utf8 = [(NSString*)represented_object UTF8String];
+  set_search_engine_action(utf8 == nullptr ? std::string() : std::string(utf8));
 }
 
 - (void)windowWillClose:(NSNotification*)notification {
@@ -109,7 +126,6 @@ constexpr CGFloat kWebViewTrailing = 0.0;
 constexpr CGFloat kWebViewBottom = 0.0;
 constexpr CGFloat kFullscreenSidebarTop = -kWebViewTop;
 constexpr double kColorEpsilon = 0.002;
-constexpr const char* kDefaultStartUrl = "https://duckduckgo.com";
 
 NSRect InitialWindowFrame() {
   NSScreen* screen = [NSScreen mainScreen];
@@ -169,6 +185,19 @@ std::string StringFromNSString(NSString* value) {
   return utf8 == nullptr ? std::string() : std::string(utf8);
 }
 
+std::string SearchEngineHomeUrl(const std::string& engine_id) {
+  if (engine_id == "google") {
+    return "https://www.google.com";
+  }
+  if (engine_id == "bing") {
+    return "https://www.bing.com";
+  }
+  if (engine_id == "yandex") {
+    return "https://yandex.ru";
+  }
+  return "https://duckduckgo.com";
+}
+
 }  // namespace
 
 class BrowserWindow::Impl {
@@ -202,6 +231,10 @@ class BrowserWindow::Impl {
     settings_bridge_ = [[BrivibaSettingsBridge alloc] init];
     settings_bridge_->set_start_secure_action = [this](bool value) {
       settings_manager_.SetStartWithSecureMode(value);
+    };
+    settings_bridge_->set_search_engine_action = [this](const std::string& engine_id) {
+      settings_manager_.SetDefaultSearchEngine(engine_id);
+      tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
     };
     settings_bridge_->settings_closed_action = [this] { settings_window_ = nil; };
 
@@ -248,6 +281,7 @@ class BrowserWindow::Impl {
       secure_mode_ = true;
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
     }
+    tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
     tab_manager_.CreateInitialTab();
     traffic_light_stack_ = TrafficLightStack(window_control_bridge_);
 
@@ -283,7 +317,7 @@ class BrowserWindow::Impl {
       [[traffic_light_stack_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
                                                        constant:23.0],
     ]];
-    tab_manager_.LoadUrl(kDefaultStartUrl);
+    tab_manager_.LoadUrl(DefaultStartUrl());
   }
 
   ~Impl() { [window_ close]; }
@@ -295,7 +329,11 @@ class BrowserWindow::Impl {
  private:
   void CreateNewTab() {
     tab_manager_.CreateTab();
-    tab_manager_.LoadUrl(kDefaultStartUrl);
+    tab_manager_.LoadUrl(DefaultStartUrl());
+  }
+
+  std::string DefaultStartUrl() const {
+    return SearchEngineHomeUrl(settings_manager_.DefaultSearchEngine());
   }
 
   void GoBackTab(size_t index) {
@@ -384,7 +422,7 @@ class BrowserWindow::Impl {
     }
 
     settings_window_ = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0.0, 0.0, 420.0, 220.0)
+        initWithContentRect:NSMakeRect(0.0, 0.0, 420.0, 300.0)
                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                     backing:NSBackingStoreBuffered
                       defer:NO];
@@ -401,6 +439,36 @@ class BrowserWindow::Impl {
     NSTextField* title_label = [NSTextField labelWithString:@"Briviba Settings"];
     [title_label setFont:[NSFont systemFontOfSize:18.0 weight:NSFontWeightSemibold]];
     [title_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSTextField* search_label = [NSTextField labelWithString:@"Search"];
+    [search_label setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold]];
+    [search_label setTextColor:[NSColor secondaryLabelColor]];
+    [search_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSPopUpButton* search_engine_popup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect];
+    [search_engine_popup setTarget:settings_bridge_];
+    [search_engine_popup setAction:@selector(changeSearchEngine:)];
+    [search_engine_popup setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSDictionary<NSString*, NSString*>* search_engines = @{
+      @"DuckDuckGo" : @"duckduckgo",
+      @"Google" : @"google",
+      @"Bing" : @"bing",
+      @"Yandex" : @"yandex",
+    };
+    for (NSString* title in @[ @"DuckDuckGo", @"Google", @"Bing", @"Yandex" ]) {
+      [search_engine_popup addItemWithTitle:title];
+      [[search_engine_popup lastItem] setRepresentedObject:search_engines[title]];
+    }
+
+    NSString* selected_search_engine =
+        [NSString stringWithUTF8String:settings_manager_.DefaultSearchEngine().c_str()];
+    for (NSMenuItem* item in [search_engine_popup itemArray]) {
+      if ([[item representedObject] isEqualToString:selected_search_engine]) {
+        [search_engine_popup selectItem:item];
+        break;
+      }
+    }
 
     NSTextField* privacy_label = [NSTextField labelWithString:@"Privacy"];
     [privacy_label setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold]];
@@ -424,6 +492,8 @@ class BrowserWindow::Impl {
     [start_secure_help setTranslatesAutoresizingMaskIntoConstraints:NO];
 
     [settings_view addSubview:title_label];
+    [settings_view addSubview:search_label];
+    [settings_view addSubview:search_engine_popup];
     [settings_view addSubview:privacy_label];
     [settings_view addSubview:start_secure_checkbox];
     [settings_view addSubview:start_secure_help];
@@ -432,8 +502,15 @@ class BrowserWindow::Impl {
       [[title_label leadingAnchor] constraintEqualToAnchor:[settings_view leadingAnchor]
                                                   constant:24.0],
       [[title_label topAnchor] constraintEqualToAnchor:[settings_view topAnchor] constant:22.0],
+      [[search_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[search_label topAnchor] constraintEqualToAnchor:[title_label bottomAnchor]
+                                                constant:28.0],
+      [[search_engine_popup leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[search_engine_popup topAnchor] constraintEqualToAnchor:[search_label bottomAnchor]
+                                                      constant:10.0],
+      [[search_engine_popup widthAnchor] constraintEqualToConstant:220.0],
       [[privacy_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
-      [[privacy_label topAnchor] constraintEqualToAnchor:[title_label bottomAnchor]
+      [[privacy_label topAnchor] constraintEqualToAnchor:[search_engine_popup bottomAnchor]
                                                 constant:28.0],
       [[start_secure_checkbox leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
       [[start_secure_checkbox topAnchor] constraintEqualToAnchor:[privacy_label bottomAnchor]

@@ -188,7 +188,20 @@ bool LooksLikeSearchQuery(const std::string& text) {
   return text.find('.') == std::string::npos && !HasUrlScheme(text);
 }
 
-std::string UrlTextFromInput(const std::string& input) {
+NSString* SearchUrlFormat(const std::string& engine_id) {
+  if (engine_id == "google") {
+    return @"https://www.google.com/search?q=%@";
+  }
+  if (engine_id == "bing") {
+    return @"https://www.bing.com/search?q=%@";
+  }
+  if (engine_id == "yandex") {
+    return @"https://yandex.ru/search/?text=%@";
+  }
+  return @"https://duckduckgo.com/?q=%@";
+}
+
+std::string UrlTextFromInput(const std::string& input, const std::string& search_engine_id) {
   if (!LooksLikeSearchQuery(input)) {
     return HasUrlScheme(input) ? input : "https://" + input;
   }
@@ -197,7 +210,7 @@ std::string UrlTextFromInput(const std::string& input) {
   NSString* encoded_query =
       [query stringByAddingPercentEncodingWithAllowedCharacters:
                  [NSCharacterSet URLQueryAllowedCharacterSet]];
-  NSString* url = [NSString stringWithFormat:@"https://duckduckgo.com/?q=%@", encoded_query];
+  NSString* url = [NSString stringWithFormat:SearchUrlFormat(search_engine_id), encoded_query];
   const char* utf8 = [url UTF8String];
   return utf8 == nullptr ? std::string("https://duckduckgo.com") : std::string(utf8);
 }
@@ -223,7 +236,7 @@ class Tab::Impl {
       return false;
     }
 
-    const std::string url_text = UrlTextFromInput(trimmed);
+    const std::string url_text = UrlTextFromInput(trimmed, search_engine_id_);
     NSString* url_string = [NSString stringWithUTF8String:url_text.c_str()];
     NSURL* url = [NSURL URLWithString:url_string];
     if (url == nil || [url scheme] == nil) {
@@ -274,6 +287,8 @@ class Tab::Impl {
     [web_view_ reload];
     EmitNavigationState();
   }
+
+  void SetSearchEngine(const std::string& engine_id) { search_engine_id_ = engine_id; }
 
   void SetNavigationStateCallback(NavigationStateCallback callback) {
     navigation_state_callback_ = std::move(callback);
@@ -333,6 +348,7 @@ class Tab::Impl {
   DownloadManager& download_manager_;
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
+  std::string search_engine_id_ = "duckduckgo";
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
   WKWebView* web_view_ = nil;
@@ -365,6 +381,10 @@ void Tab::GoForward() {
 
 void Tab::Reload() {
   impl_->Reload();
+}
+
+void Tab::SetSearchEngine(const std::string& engine_id) {
+  impl_->SetSearchEngine(engine_id);
 }
 
 void Tab::SetNavigationStateCallback(NavigationStateCallback callback) {

@@ -48,6 +48,7 @@ class TabManager {
   void GoBack();
   void GoForward();
   void Reload();
+  void SetSearchEngine(const std::string& engine_id);
   void SetBrowsingMode(BrowsingMode mode);
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
