@@ -18,7 +18,10 @@ class SettingsManager {
   static std::filesystem::path DefaultDatabasePath();
 
   bool StartWithSecureMode() const;
+  void SetStartWithSecureMode(bool value);
   bool ToggleStartWithSecureMode();
+  std::string DefaultSearchEngine() const;
+  void SetDefaultSearchEngine(const std::string& engine_id);
 
  private:
   class Impl;

@@ -25,7 +25,7 @@ class Tab {
 
   using NavigationStateCallback =
       std::function<void(bool can_go_back, bool can_go_forward, const std::string& url,
-                         const std::string& title)>;
+                         const std::string& title, const std::string& favicon_url)>;
   using PageColorCallback = std::function<void(PageColor color)>;
 
 #ifdef __OBJC__
@@ -42,6 +42,7 @@ class Tab {
   void GoBack();
   void GoForward();
   void Reload();
+  void SetSearchEngine(const std::string& engine_id);
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
 
