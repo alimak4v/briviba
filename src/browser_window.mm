@@ -7,7 +7,6 @@
 #include "briviba/settings_manager.h"
 #include "briviba/sidebar.h"
 #include "briviba/tab_manager.h"
-#include "briviba/toolbar.h"
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -104,11 +103,8 @@ constexpr CGFloat kVisibleFrameScale = 0.88;
 constexpr CGFloat kSidebarLeading = 0.0;
 constexpr CGFloat kSidebarTop = 0.0;
 constexpr CGFloat kSidebarBottom = 0.0;
-constexpr CGFloat kToolbarLeading = 132.0;
-constexpr CGFloat kToolbarTop = 22.0;
-constexpr CGFloat kToolbarTrailing = 24.0;
 constexpr CGFloat kWebViewLeading = 96.0;
-constexpr CGFloat kWebViewTop = 72.0;
+constexpr CGFloat kWebViewTop = 0.0;
 constexpr CGFloat kWebViewTrailing = 0.0;
 constexpr CGFloat kWebViewBottom = 0.0;
 constexpr CGFloat kFullscreenSidebarTop = -kWebViewTop;
@@ -168,6 +164,11 @@ NSStackView* TrafficLightStack(id target) {
   return stack;
 }
 
+std::string StringFromNSString(NSString* value) {
+  const char* utf8 = [value UTF8String];
+  return utf8 == nullptr ? std::string() : std::string(utf8);
+}
+
 }  // namespace
 
 class BrowserWindow::Impl {
@@ -218,23 +219,15 @@ class BrowserWindow::Impl {
     sidebar_.SetSettingsAction([this] { ShowSettingsWindow(); });
     sidebar_.SetSelectTabAction([this](size_t index) { tab_manager_.SelectTab(index); });
     sidebar_.SetCloseTabAction([this](size_t index) { tab_manager_.CloseTab(index); });
-    toolbar_.SetBackAction([this] { tab_manager_.GoBack(); });
-    toolbar_.SetForwardAction([this] { tab_manager_.GoForward(); });
-    toolbar_.SetReloadAction([this] { tab_manager_.Reload(); });
-    toolbar_.SetBookmarkAction([this] { AddCurrentBookmark(); });
-    toolbar_.SetMenuAction([this] { ToggleBrowsingMode(); });
-    toolbar_.SetSettingsAction([this] { ShowSettingsWindow(); });
-    toolbar_.SetAddressSubmitAction([this](const std::string& text) {
-      if (tab_manager_.LoadUrl(text)) {
-        toolbar_.SetAddressText(text);
-      }
-    });
+    sidebar_.SetReloadTabAction([this](size_t index) { ReloadTab(index); });
+    sidebar_.SetEditTabAddressAction([this](size_t index) { ShowAddressEditor(index); });
     tab_manager_.SetNavigationStateCallback(
         [this](bool can_go_back, bool can_go_forward, const std::string& url,
                const std::string& title, const std::string& favicon_url) {
           (void)favicon_url;
-          toolbar_.SetNavigationState(can_go_back, can_go_forward);
-          toolbar_.SetPageIdentity(url, title);
+          (void)can_go_back;
+          (void)can_go_forward;
+          (void)title;
           if (!secure_mode_) {
             history_manager_.RecordVisit(url);
           }
@@ -259,7 +252,6 @@ class BrowserWindow::Impl {
     [content_view_ addSubview:chrome_background_];
     [content_view_ addSubview:tab_manager_.NativeView()];
     [content_view_ addSubview:sidebar_.NativeView()];
-    [content_view_ addSubview:toolbar_.NativeView()];
     [content_view_ addSubview:traffic_light_stack_];
     sidebar_top_constraint_ =
         [[sidebar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
@@ -283,12 +275,6 @@ class BrowserWindow::Impl {
       sidebar_top_constraint_,
       [[sidebar_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
                                                            constant:-kSidebarBottom],
-      [[toolbar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
-                                                            constant:kToolbarLeading],
-      [[toolbar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
-                                                        constant:kToolbarTop],
-      [[toolbar_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
-                                                             constant:-kToolbarTrailing],
       [[traffic_light_stack_ centerXAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
                                                            constant:kSidebarLeading +
                                                                     kWebViewLeading / 2.0],
@@ -296,7 +282,6 @@ class BrowserWindow::Impl {
                                                        constant:23.0],
     ]];
     tab_manager_.LoadUrl(kDefaultStartUrl);
-    toolbar_.SetPageIdentity(kDefaultStartUrl, "DuckDuckGo");
   }
 
   ~Impl() { [window_ close]; }
@@ -309,7 +294,35 @@ class BrowserWindow::Impl {
   void CreateNewTab() {
     tab_manager_.CreateTab();
     tab_manager_.LoadUrl(kDefaultStartUrl);
-    toolbar_.SetPageIdentity(kDefaultStartUrl, "DuckDuckGo");
+  }
+
+  void ReloadTab(size_t index) {
+    tab_manager_.SelectTab(index);
+    tab_manager_.Reload();
+  }
+
+  void ShowAddressEditor(size_t index) {
+    tab_manager_.SelectTab(index);
+
+    NSAlert* alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Edit Address"];
+    [alert setInformativeText:@"Enter a URL or search query for this tab."];
+    [alert addButtonWithTitle:@"Open"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSTextField* address_field = [[NSTextField alloc] initWithFrame:NSMakeRect(0.0, 0.0, 420.0, 26.0)];
+    [address_field setStringValue:[NSString stringWithUTF8String:tab_manager_.CurrentUrl().c_str()]];
+    [address_field setUsesSingleLineMode:YES];
+    [address_field setLineBreakMode:NSLineBreakByTruncatingMiddle];
+    [alert setAccessoryView:address_field];
+
+    NSWindow* alert_window = [alert window];
+    [alert_window setInitialFirstResponder:address_field];
+    if ([alert runModal] != NSAlertFirstButtonReturn) {
+      return;
+    }
+
+    tab_manager_.LoadUrl(StringFromNSString([address_field stringValue]));
   }
 
   void ToggleBrowsingMode() {
@@ -447,7 +460,6 @@ class BrowserWindow::Impl {
   DownloadManager download_manager_{DownloadManager::DefaultDatabasePath()};
   Sidebar sidebar_;
   TabManager tab_manager_{cookie_manager_, download_manager_};
-  Toolbar toolbar_;
   NSWindow* window_ = nil;
   NSView* content_view_ = nil;
   NSView* chrome_background_ = nil;

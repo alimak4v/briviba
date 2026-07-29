@@ -13,11 +13,15 @@
   briviba::Sidebar::Action settings_action;
   briviba::Sidebar::SelectTabAction select_tab_action;
   briviba::Sidebar::CloseTabAction close_tab_action;
+  briviba::Sidebar::TabAction reload_tab_action;
+  briviba::Sidebar::TabAction edit_tab_address_action;
 }
 - (void)newTab:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)selectTab:(id)sender;
 - (void)closeTab:(id)sender;
+- (void)reloadTab:(id)sender;
+- (void)editTabAddress:(id)sender;
 @end
 
 @implementation BrivibaSidebarActionBridge
@@ -50,11 +54,57 @@
   close_tab_action(static_cast<size_t>([sender tag]));
 }
 
+- (void)reloadTab:(id)sender {
+  if (!reload_tab_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  reload_tab_action(static_cast<size_t>([sender tag]));
+}
+
+- (void)editTabAddress:(id)sender {
+  if (!edit_tab_address_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  edit_tab_address_action(static_cast<size_t>([sender tag]));
+}
+
 @end
+
+NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id target) {
+  NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Tab"];
+
+  NSMenuItem* address_item = [[NSMenuItem alloc] initWithTitle:@"Edit Address..."
+                                                        action:@selector(editTabAddress:)
+                                                 keyEquivalent:@""];
+  [address_item setTarget:target];
+  [address_item setTag:tab_index];
+  [menu addItem:address_item];
+
+  NSMenuItem* reload_item = [[NSMenuItem alloc] initWithTitle:@"Reload"
+                                                       action:@selector(reloadTab:)
+                                                keyEquivalent:@""];
+  [reload_item setTarget:target];
+  [reload_item setTag:tab_index];
+  [menu addItem:reload_item];
+
+  if (close_enabled) {
+    [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem* close_item = [[NSMenuItem alloc] initWithTitle:@"Close Tab"
+                                                        action:@selector(closeTab:)
+                                                 keyEquivalent:@""];
+    [close_item setTarget:target];
+    [close_item setTag:tab_index];
+    [menu addItem:close_item];
+  }
+
+  return menu;
+}
 
 @interface BrivibaSidebarTabItemView : NSView
 @property(nonatomic, strong) NSButton* closeButton;
 @property(nonatomic) BOOL closeEnabled;
+@property(nonatomic, weak) id actionTarget;
+@property(nonatomic) NSInteger tabIndex;
 @end
 
 @implementation BrivibaSidebarTabItemView {
@@ -89,6 +139,12 @@
 - (void)mouseExited:(NSEvent*)event {
   (void)event;
   [self updateCloseButtonVisibility:NO];
+}
+
+- (void)rightMouseDown:(NSEvent*)event {
+  [NSMenu popUpContextMenu:BrivibaSidebarTabContextMenu(_tabIndex, _closeEnabled, _actionTarget)
+                 withEvent:event
+                   forView:self];
 }
 
 - (void)updateCloseButtonVisibility:(BOOL)visible {
@@ -266,8 +322,12 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
                    id target) {
   BrivibaSidebarTabItemView* item = [[BrivibaSidebarTabItemView alloc] initWithFrame:NSZeroRect];
   [item setCloseEnabled:close_enabled ? YES : NO];
+  [item setActionTarget:target];
+  [item setTabIndex:static_cast<NSInteger>(index)];
   [item setTranslatesAutoresizingMaskIntoConstraints:NO];
   NSButton* tab_button = SiteTabButton(index, tab, active, target);
+  [tab_button setMenu:BrivibaSidebarTabContextMenu(static_cast<NSInteger>(index),
+                                                  close_enabled ? YES : NO, target)];
   [item addSubview:tab_button];
 
   NSMutableArray<NSLayoutConstraint*>* constraints = [NSMutableArray arrayWithArray:@[
@@ -404,6 +464,12 @@ class Sidebar::Impl {
 
   void SetCloseTabAction(CloseTabAction action) { bridge_->close_tab_action = std::move(action); }
 
+  void SetReloadTabAction(TabAction action) { bridge_->reload_tab_action = std::move(action); }
+
+  void SetEditTabAddressAction(TabAction action) {
+    bridge_->edit_tab_address_action = std::move(action);
+  }
+
   void SetTabState(const std::vector<Sidebar::TabState>& tabs, size_t active_index) {
     for (NSView* subview in [[tab_stack_ arrangedSubviews] copy]) {
       [tab_stack_ removeArrangedSubview:subview];
@@ -483,6 +549,14 @@ void Sidebar::SetSelectTabAction(SelectTabAction action) {
 
 void Sidebar::SetCloseTabAction(CloseTabAction action) {
   impl_->SetCloseTabAction(std::move(action));
+}
+
+void Sidebar::SetReloadTabAction(TabAction action) {
+  impl_->SetReloadTabAction(std::move(action));
+}
+
+void Sidebar::SetEditTabAddressAction(TabAction action) {
+  impl_->SetEditTabAddressAction(std::move(action));
 }
 
 void Sidebar::SetTabState(const std::vector<TabState>& tabs, size_t active_index) {

@@ -24,6 +24,7 @@ class Sidebar {
   using Action = std::function<void()>;
   using SelectTabAction = std::function<void(size_t index)>;
   using CloseTabAction = std::function<void(size_t index)>;
+  using TabAction = std::function<void(size_t index)>;
 
   Sidebar();
   ~Sidebar();
@@ -35,6 +36,8 @@ class Sidebar {
   void SetSettingsAction(Action action);
   void SetSelectTabAction(SelectTabAction action);
   void SetCloseTabAction(CloseTabAction action);
+  void SetReloadTabAction(TabAction action);
+  void SetEditTabAddressAction(TabAction action);
   void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
   void SetFullscreenAppearance(bool fullscreen);
 
