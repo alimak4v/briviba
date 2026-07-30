@@ -26,6 +26,7 @@
   std::function<void()> fullscreen_action;
   std::function<void()> fullscreen_enter_action;
   std::function<void()> fullscreen_exit_action;
+  std::function<void()> window_will_close_action;
 }
 - (void)closeWindow:(id)sender;
 - (void)minimizeWindow:(id)sender;
@@ -66,6 +67,13 @@
   (void)notification;
   if (fullscreen_exit_action) {
     fullscreen_exit_action();
+  }
+}
+
+- (void)windowWillClose:(NSNotification*)notification {
+  (void)notification;
+  if (window_will_close_action) {
+    window_will_close_action();
   }
 }
 
@@ -263,6 +271,7 @@ class BrowserWindow::Impl {
     window_control_bridge_->fullscreen_action = [this] { ToggleCustomFullscreen(); };
     window_control_bridge_->fullscreen_enter_action = [this] { EnterNativeFullscreenChrome(); };
     window_control_bridge_->fullscreen_exit_action = [this] { ExitNativeFullscreenChrome(); };
+    window_control_bridge_->window_will_close_action = [this] { PersistSessionSnapshot(); };
     [window_ setDelegate:window_control_bridge_];
     settings_bridge_ = [[BrivibaSettingsBridge alloc] init];
     settings_bridge_->set_start_secure_action = [this](bool value) {
@@ -371,7 +380,10 @@ class BrowserWindow::Impl {
     cookie_manager_.WhenReady([this] { LoadInitialSession(); });
   }
 
-  ~Impl() { [window_ close]; }
+  ~Impl() {
+    PersistSessionSnapshot();
+    [window_ close];
+  }
 
   void Show() {
     [window_ makeKeyAndOrderFront:nil];
@@ -535,7 +547,15 @@ class BrowserWindow::Impl {
   void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }
 
   void CloseWindow() {
+    PersistSessionSnapshot();
     [window_ close];
+  }
+
+  void PersistSessionSnapshot() {
+    if (secure_mode_) {
+      return;
+    }
+    settings_manager_.SetSessionState(tab_manager_.SessionUrls(), tab_manager_.ActiveIndex());
   }
 
   void MinimizeWindow() {

@@ -196,6 +196,17 @@ class TabManager::Impl {
     return tabs_[index].url.empty() ? tabs_[index].tab->CurrentUrl() : tabs_[index].url;
   }
 
+  std::vector<std::string> SessionUrls() const {
+    std::vector<std::string> urls;
+    urls.reserve(tabs_.size());
+    for (const auto& tab : tabs_) {
+      urls.push_back(tab.tab->CurrentUrl());
+    }
+    return urls;
+  }
+
+  size_t ActiveIndex() const { return active_index_; }
+
   void GoBack() {
     Tab* tab = ActiveTab();
     if (tab != nullptr) {
@@ -504,6 +515,14 @@ std::string TabManager::CurrentUrl() const {
 
 std::string TabManager::UrlForTab(size_t index) const {
   return impl_->UrlForTab(index);
+}
+
+std::vector<std::string> TabManager::SessionUrls() const {
+  return impl_->SessionUrls();
+}
+
+size_t TabManager::ActiveIndex() const {
+  return impl_->ActiveIndex();
 }
 
 void TabManager::GoBack() {
