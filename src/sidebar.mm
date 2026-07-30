@@ -322,8 +322,8 @@ std::filesystem::path FaviconCacheDirectory() {
 
 NSURL* FaviconCacheFileUrl(NSString* favicon_url) {
   std::filesystem::create_directories(FaviconCacheDirectory());
-  std::filesystem::path cache_path =
-      FaviconCacheDirectory() / (std::string([[SHA256Hex(favicon_url) stringByAppendingString:@".img"] UTF8String]));
+  NSString* filename = [SHA256Hex(favicon_url) stringByAppendingString:@".img"];
+  std::filesystem::path cache_path = FaviconCacheDirectory() / std::string([filename UTF8String]);
   return [NSURL fileURLWithPath:NSStringFromPath(cache_path)];
 }
 
@@ -338,40 +338,74 @@ NSMutableSet<NSString*>* PendingFaviconFetches() {
   return pending_fetches;
 }
 
-NSImage* CachedFavicon(NSString* favicon_url) {
-  NSImage* cached_image = [FaviconMemoryCache() objectForKey:favicon_url];
+NSMutableDictionary<NSString*, NSHashTable<NSButton*>*>* PendingFaviconButtons() {
+  static NSMutableDictionary<NSString*, NSHashTable<NSButton*>*>* pending_buttons =
+      [NSMutableDictionary dictionary];
+  return pending_buttons;
+}
+
+NSImage* CachedFavicon(NSString* cache_key) {
+  NSImage* cached_image = [FaviconMemoryCache() objectForKey:cache_key];
   if (cached_image != nil) {
     [cached_image setSize:NSMakeSize(28.0, 28.0)];
     return cached_image;
   }
 
-  NSURL* file_url = FaviconCacheFileUrl(favicon_url);
+  NSURL* file_url = FaviconCacheFileUrl(cache_key);
   NSImage* disk_image = [[NSImage alloc] initWithContentsOfURL:file_url];
   if (disk_image != nil) {
     [disk_image setSize:NSMakeSize(28.0, 28.0)];
-    [FaviconMemoryCache() setObject:disk_image forKey:favicon_url];
+    [FaviconMemoryCache() setObject:disk_image forKey:cache_key];
   }
   return disk_image;
 }
 
-void FetchFaviconIfNeeded(NSString* favicon_url, NSButton* button) {
-  if ([favicon_url length] == 0 || [PendingFaviconFetches() containsObject:favicon_url]) {
+NSURL* FaviconSourceUrl(const Sidebar::TabState& tab) {
+  if (!tab.favicon_url.empty()) {
+    NSURL* explicit_url = [NSURL URLWithString:StringFromStdString(tab.favicon_url)];
+    if (explicit_url != nil) {
+      return explicit_url;
+    }
+  }
+
+  NSString* host = HostFromUrl(tab.url);
+  if ([host length] == 0 || [host containsString:@"://"] || [host isEqualToString:@"?"]) {
+    return nil;
+  }
+  return [NSURL URLWithString:[NSString stringWithFormat:@"https://%@/favicon.ico", host]];
+}
+
+void TrackPendingFaviconButton(NSString* cache_key, NSButton* button) {
+  NSHashTable<NSButton*>* buttons = PendingFaviconButtons()[cache_key];
+  if (buttons == nil) {
+    buttons = [NSHashTable weakObjectsHashTable];
+    PendingFaviconButtons()[cache_key] = buttons;
+  }
+  [buttons addObject:button];
+}
+
+void FetchFaviconIfNeeded(NSString* cache_key, NSURL* favicon_url, NSButton* button) {
+  if ([cache_key length] == 0 || favicon_url == nil) {
     return;
   }
 
-  NSURL* remote_url = [NSURL URLWithString:favicon_url];
-  if (remote_url == nil) {
+  if ([PendingFaviconFetches() containsObject:cache_key]) {
+    TrackPendingFaviconButton(cache_key, button);
     return;
   }
 
-  [PendingFaviconFetches() addObject:favicon_url];
+  TrackPendingFaviconButton(cache_key, button);
+  [PendingFaviconFetches() addObject:cache_key];
   NSURLSessionDataTask* task =
-      [[NSURLSession sharedSession] dataTaskWithURL:remote_url
+      [[NSURLSession sharedSession] dataTaskWithURL:favicon_url
                                   completionHandler:^(NSData* data, NSURLResponse* response,
                                                       NSError* error) {
                                     (void)response;
                                     dispatch_async(dispatch_get_main_queue(), ^{
-                                      [PendingFaviconFetches() removeObject:favicon_url];
+                                      NSHashTable<NSButton*>* buttons =
+                                          PendingFaviconButtons()[cache_key];
+                                      [PendingFaviconButtons() removeObjectForKey:cache_key];
+                                      [PendingFaviconFetches() removeObject:cache_key];
                                       if (error != nil || data == nil || [data length] == 0) {
                                         return;
                                       }
@@ -379,21 +413,29 @@ void FetchFaviconIfNeeded(NSString* favicon_url, NSButton* button) {
                                       if (image == nil) {
                                         return;
                                       }
-                                      [data writeToURL:FaviconCacheFileUrl(favicon_url)
-                                           atomically:YES];
+                                      [data writeToURL:FaviconCacheFileUrl(cache_key) atomically:YES];
                                       [image setSize:NSMakeSize(28.0, 28.0)];
-                                      [FaviconMemoryCache() setObject:image forKey:favicon_url];
-                                      [button setImage:image];
+                                      [FaviconMemoryCache() setObject:image forKey:cache_key];
+                                      for (NSButton* pending_button in buttons) {
+                                        [pending_button setImage:image];
+                                      }
                                     });
                                   }];
   [task resume];
 }
 
 NSImage* SiteTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
+  NSString* cache_key = HostFromUrl(tab.url);
+  if ([cache_key length] > 0) {
+    NSImage* domain_favicon = CachedFavicon(cache_key);
+    if (domain_favicon != nil) {
+      return domain_favicon;
+    }
+  }
   if (!tab.favicon_url.empty()) {
-    NSImage* favicon = CachedFavicon(StringFromStdString(tab.favicon_url));
-    if (favicon != nil) {
-      return favicon;
+    NSImage* url_favicon = CachedFavicon(StringFromStdString(tab.favicon_url));
+    if (url_favicon != nil) {
+      return url_favicon;
     }
   }
   return FallbackTabImage(FallbackTabLabel(tab), active, enabled);
@@ -450,8 +492,10 @@ NSButton* BaseTabButton(size_t index, bool enabled, bool active, id target) {
 NSButton* SiteTabButton(size_t index, const Sidebar::TabState& tab, bool active, id target) {
   NSButton* button = BaseTabButton(index, true, active, target);
   [button setImage:SiteTabImage(tab, active, true)];
-  if (!tab.favicon_url.empty()) {
-    FetchFaviconIfNeeded(StringFromStdString(tab.favicon_url), button);
+  NSURL* favicon_url = FaviconSourceUrl(tab);
+  NSString* cache_key = HostFromUrl(tab.url);
+  if ([cache_key length] > 0) {
+    FetchFaviconIfNeeded(cache_key, favicon_url, button);
   }
   [button setImagePosition:NSImageOnly];
   [button setImageScaling:NSImageScaleProportionallyDown];
