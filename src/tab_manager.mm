@@ -332,6 +332,10 @@ class TabManager::Impl {
         page_color_callback_(color);
       }
     });
+    tab->SetOpenUrlInNewTabCallback([this](const std::string& url) {
+      CreateTab();
+      LoadUrl(url);
+    });
   }
 
   void MountActiveTab() {

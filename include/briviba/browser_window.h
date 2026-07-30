@@ -14,6 +14,7 @@ class BrowserWindow {
   BrowserWindow& operator=(const BrowserWindow&) = delete;
 
   void Show();
+  void CreateNewTab();
 
  private:
   class Impl;

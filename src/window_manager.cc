@@ -14,4 +14,12 @@ void WindowManager::OpenInitialWindow() {
   windows_.push_back(std::move(window));
 }
 
+void WindowManager::CreateTabInActiveWindow() {
+  if (windows_.empty()) {
+    OpenInitialWindow();
+    return;
+  }
+  windows_.back()->CreateNewTab();
+}
+
 }  // namespace briviba

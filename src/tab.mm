@@ -2,6 +2,7 @@
 
 #include "briviba/download_manager.h"
 
+#import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
 #include <cctype>
@@ -9,10 +10,55 @@
 #include <string>
 #include <utility>
 
-@interface BrivibaNavigationDelegate : NSObject <WKNavigationDelegate> {
+@interface BrivibaWebView : WKWebView
+@end
+
+@implementation BrivibaWebView
+
+- (NSMenu*)menuForEvent:(NSEvent*)event {
+  NSMenu* default_menu = [super menuForEvent:event];
+  if (default_menu == nil) {
+    return nil;
+  }
+
+  BOOL link_menu = NO;
+  for (NSMenuItem* item in [default_menu itemArray]) {
+    if ([[item title] isEqualToString:@"Open Link"]) {
+      link_menu = YES;
+      break;
+    }
+  }
+  if (!link_menu) {
+    return default_menu;
+  }
+
+  NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Link"];
+  for (NSMenuItem* item in [default_menu itemArray]) {
+    NSString* title = [item title];
+    BOOL keep = [title isEqualToString:@"Open Link"] ||
+                [title isEqualToString:@"Open Link in New Window"] ||
+                [title isEqualToString:@"Copy Link"] ||
+                [title hasPrefix:@"Share"];
+    if (!keep) {
+      continue;
+    }
+
+    NSMenuItem* copied_item = [item copy];
+    if ([title isEqualToString:@"Open Link in New Window"]) {
+      [copied_item setTitle:@"Open Link in New Tab"];
+    }
+    [menu addItem:copied_item];
+  }
+  return [menu numberOfItems] == 0 ? default_menu : menu;
+}
+
+@end
+
+@interface BrivibaNavigationDelegate : NSObject <WKNavigationDelegate, WKUIDelegate> {
  @public
   briviba::Tab::NavigationStateCallback navigation_state_callback;
   briviba::Tab::PageColorCallback page_color_callback;
+  briviba::Tab::OpenUrlInNewTabCallback open_url_in_new_tab_callback;
   briviba::DownloadManager* download_manager;
 }
 - (void)emitNavigationStateForWebView:(WKWebView*)web_view;
@@ -21,6 +67,26 @@
 @end
 
 @implementation BrivibaNavigationDelegate
+
+- (WKWebView*)webView:(WKWebView*)webView
+    createWebViewWithConfiguration:(WKWebViewConfiguration*)configuration
+               forNavigationAction:(WKNavigationAction*)navigationAction
+                     windowFeatures:(WKWindowFeatures*)windowFeatures {
+  (void)webView;
+  (void)configuration;
+  (void)windowFeatures;
+  if (!open_url_in_new_tab_callback) {
+    return nil;
+  }
+
+  NSURL* url = [[navigationAction request] URL];
+  NSString* absolute_string = url == nil ? @"" : [url absoluteString];
+  const char* utf8 = [absolute_string UTF8String];
+  if (utf8 != nullptr && std::string(utf8).size() > 0) {
+    open_url_in_new_tab_callback(std::string(utf8));
+  }
+  return nil;
+}
 
 - (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation {
   (void)navigation;
@@ -284,6 +350,7 @@ class Tab::Impl {
   void Unload() {
     current_url_ = CurrentUrl();
     [web_view_ setNavigationDelegate:nil];
+    [web_view_ setUIDelegate:nil];
     [web_view_ removeFromSuperview];
     navigation_delegate_ = nil;
     web_view_ = nil;
@@ -328,6 +395,13 @@ class Tab::Impl {
     }
   }
 
+  void SetOpenUrlInNewTabCallback(OpenUrlInNewTabCallback callback) {
+    open_url_in_new_tab_callback_ = std::move(callback);
+    if (navigation_delegate_ != nil) {
+      navigation_delegate_->open_url_in_new_tab_callback = open_url_in_new_tab_callback_;
+    }
+  }
+
   NSView* NativeView() {
     EnsureLoaded();
     return web_view_;
@@ -346,13 +420,15 @@ class Tab::Impl {
     if (website_data_store_ != nil) {
       [configuration setWebsiteDataStore:website_data_store_];
     }
-    web_view_ = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    web_view_ = [[BrivibaWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
     [web_view_ setCustomUserAgent:SafariLikeUserAgent()];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
     navigation_delegate_->download_manager = &download_manager_;
     navigation_delegate_->navigation_state_callback = navigation_state_callback_;
     navigation_delegate_->page_color_callback = page_color_callback_;
+    navigation_delegate_->open_url_in_new_tab_callback = open_url_in_new_tab_callback_;
     [web_view_ setNavigationDelegate:navigation_delegate_];
+    [web_view_ setUIDelegate:navigation_delegate_];
     [web_view_ setAllowsBackForwardNavigationGestures:YES];
     [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
     if (!current_url_.empty()) {
@@ -378,6 +454,7 @@ class Tab::Impl {
   DownloadManager& download_manager_;
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
+  OpenUrlInNewTabCallback open_url_in_new_tab_callback_;
   std::string search_engine_id_ = "duckduckgo";
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
@@ -427,6 +504,10 @@ void Tab::SetNavigationStateCallback(NavigationStateCallback callback) {
 
 void Tab::SetPageColorCallback(PageColorCallback callback) {
   impl_->SetPageColorCallback(std::move(callback));
+}
+
+void Tab::SetOpenUrlInNewTabCallback(OpenUrlInNewTabCallback callback) {
+  impl_->SetOpenUrlInNewTabCallback(std::move(callback));
 }
 
 NSView* Tab::NativeView() const {

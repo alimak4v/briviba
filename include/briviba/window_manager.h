@@ -17,6 +17,7 @@ class WindowManager {
   WindowManager& operator=(const WindowManager&) = delete;
 
   void OpenInitialWindow();
+  void CreateTabInActiveWindow();
 
  private:
   std::vector<std::unique_ptr<BrowserWindow>> windows_;

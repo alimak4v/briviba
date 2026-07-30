@@ -377,6 +377,8 @@ class BrowserWindow::Impl {
     [window_ makeKeyAndOrderFront:nil];
   }
 
+  void NewTab() { CreateNewTab(); }
+
  private:
   void CreateNewTab() {
     tab_manager_.CreateTab();
@@ -843,6 +845,10 @@ BrowserWindow::~BrowserWindow() = default;
 
 void BrowserWindow::Show() {
   impl_->Show();
+}
+
+void BrowserWindow::CreateNewTab() {
+  impl_->NewTab();
 }
 
 }  // namespace briviba
