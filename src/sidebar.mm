@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cmath>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -539,6 +540,12 @@ NSCache<NSString*, NSImage*>* FaviconMemoryCache() {
   return cache;
 }
 
+NSCache<NSString*, NSImage*>* RenderedFaviconMemoryCache() {
+  static NSCache<NSString*, NSImage*>* cache = [[NSCache alloc] init];
+  [cache setCountLimit:256];
+  return cache;
+}
+
 NSMutableSet<NSString*>* PendingFaviconFetches() {
   static NSMutableSet<NSString*>* pending_fetches = [NSMutableSet set];
   return pending_fetches;
@@ -550,20 +557,121 @@ NSMutableDictionary<NSString*, NSHashTable<NSButton*>*>* PendingFaviconButtons()
   return pending_buttons;
 }
 
+std::optional<NSColor*> AverageVisibleColor(NSImage* image) {
+  CGImageRef cg_image = [image CGImageForProposedRect:nil context:nil hints:nil];
+  if (cg_image == nullptr) {
+    return std::nullopt;
+  }
+
+  constexpr size_t kWidth = 12;
+  constexpr size_t kHeight = 12;
+  constexpr size_t kBytesPerPixel = 4;
+  unsigned char pixels[kWidth * kHeight * kBytesPerPixel] = {};
+  CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+  const CGBitmapInfo bitmap_info =
+      static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | kCGBitmapByteOrder32Big;
+  CGContextRef context =
+      CGBitmapContextCreate(pixels, kWidth, kHeight, 8, kWidth * kBytesPerPixel, color_space,
+                            bitmap_info);
+  CGColorSpaceRelease(color_space);
+  if (context == nullptr) {
+    return std::nullopt;
+  }
+
+  CGContextDrawImage(context, CGRectMake(0.0, 0.0, kWidth, kHeight), cg_image);
+  CGContextRelease(context);
+
+  double red = 0.0;
+  double green = 0.0;
+  double blue = 0.0;
+  double alpha = 0.0;
+  for (size_t offset = 0; offset < kWidth * kHeight * kBytesPerPixel; offset += kBytesPerPixel) {
+    const double pixel_alpha = static_cast<double>(pixels[offset + 3]) / 255.0;
+    if (pixel_alpha < 0.10) {
+      continue;
+    }
+    red += static_cast<double>(pixels[offset]) * pixel_alpha;
+    green += static_cast<double>(pixels[offset + 1]) * pixel_alpha;
+    blue += static_cast<double>(pixels[offset + 2]) * pixel_alpha;
+    alpha += pixel_alpha;
+  }
+  if (alpha <= 0.0) {
+    return std::nullopt;
+  }
+
+  return [NSColor colorWithRed:std::clamp((red / alpha) / 255.0, 0.0, 1.0)
+                         green:std::clamp((green / alpha) / 255.0, 0.0, 1.0)
+                          blue:std::clamp((blue / alpha) / 255.0, 0.0, 1.0)
+                         alpha:1.0];
+}
+
+NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
+  NSString* rendered_key = [@"rendered:" stringByAppendingString:cache_key];
+  NSImage* cached_image = [RenderedFaviconMemoryCache() objectForKey:rendered_key];
+  if (cached_image != nil) {
+    return cached_image;
+  }
+
+  constexpr CGFloat kCanvasSize = 30.0;
+  constexpr CGFloat kNormalIconSize = 28.0;
+  constexpr CGFloat kSmallIconSize = 17.0;
+  NSSize pixel_size = [source_image size];
+  CGImageRef cg_image = [source_image CGImageForProposedRect:nil context:nil hints:nil];
+  if (cg_image != nullptr) {
+    pixel_size = NSMakeSize(CGImageGetWidth(cg_image), CGImageGetHeight(cg_image));
+  }
+  const bool low_quality = pixel_size.width < 24.0 || pixel_size.height < 24.0;
+
+  NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(kCanvasSize, kCanvasSize)];
+  [image lockFocus];
+  [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
+  if (low_quality) {
+    NSColor* background_color = [NSColor colorWithWhite:1.0 alpha:0.90];
+    std::optional<NSColor*> average_color = AverageVisibleColor(source_image);
+    if (average_color.has_value()) {
+      background_color = [average_color.value() blendedColorWithFraction:0.58
+                                                                  ofColor:[NSColor whiteColor]];
+    }
+    NSBezierPath* background =
+        [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.0, 0.0, kCanvasSize, kCanvasSize)
+                                        xRadius:9.0
+                                        yRadius:9.0];
+    [background_color setFill];
+    [background fill];
+    [[NSColor colorWithWhite:1.0 alpha:0.62] setStroke];
+    [background setLineWidth:1.0];
+    [background stroke];
+
+    const CGFloat origin = (kCanvasSize - kSmallIconSize) / 2.0;
+    [source_image drawInRect:NSMakeRect(origin, origin, kSmallIconSize, kSmallIconSize)
+                    fromRect:NSZeroRect
+                   operation:NSCompositingOperationSourceOver
+                    fraction:1.0];
+  } else {
+    const CGFloat origin = (kCanvasSize - kNormalIconSize) / 2.0;
+    [source_image drawInRect:NSMakeRect(origin, origin, kNormalIconSize, kNormalIconSize)
+                    fromRect:NSZeroRect
+                   operation:NSCompositingOperationSourceOver
+                    fraction:1.0];
+  }
+  [image unlockFocus];
+  [RenderedFaviconMemoryCache() setObject:image forKey:rendered_key];
+  return image;
+}
+
 NSImage* CachedFavicon(NSString* cache_key) {
   NSImage* cached_image = [FaviconMemoryCache() objectForKey:cache_key];
   if (cached_image != nil) {
-    [cached_image setSize:NSMakeSize(28.0, 28.0)];
-    return cached_image;
+    return RenderFaviconForSidebar(cached_image, cache_key);
   }
 
   NSURL* file_url = FaviconCacheFileUrl(cache_key);
   NSImage* disk_image = [[NSImage alloc] initWithContentsOfURL:file_url];
   if (disk_image != nil) {
-    [disk_image setSize:NSMakeSize(28.0, 28.0)];
     [FaviconMemoryCache() setObject:disk_image forKey:cache_key];
+    return RenderFaviconForSidebar(disk_image, cache_key);
   }
-  return disk_image;
+  return nil;
 }
 
 NSURL* FaviconSourceUrl(const Sidebar::TabState& tab) {
@@ -620,10 +728,11 @@ void FetchFaviconIfNeeded(NSString* cache_key, NSURL* favicon_url, NSButton* but
                                         return;
                                       }
                                       [data writeToURL:FaviconCacheFileUrl(cache_key) atomically:YES];
-                                      [image setSize:NSMakeSize(28.0, 28.0)];
                                       [FaviconMemoryCache() setObject:image forKey:cache_key];
+                                      NSImage* rendered_image =
+                                          RenderFaviconForSidebar(image, cache_key);
                                       for (NSButton* pending_button in buttons) {
-                                        [pending_button setImage:image];
+                                        [pending_button setImage:rendered_image];
                                       }
                                     });
                                   }];
