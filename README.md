@@ -40,6 +40,7 @@ The project experiments with browser chrome that feels native to macOS without c
 - Glass-style left sidebar with favicon tabs, close-on-hover controls, and scrollable overflow.
 - Lazy session restore: only the active restored tab loads at startup.
 - Warm tab switching: loaded inactive `WKWebView` instances stay alive instead of being destroyed on every tab change.
+- Cross-site navigations reuse the active `WKWebView` instead of rebuilding the page process.
 - Persistent normal-mode WebKit storage for logins, cookies, and site data between sessions.
 - Secure Mode with non-persistent WebKit storage.
 - Settings window with persisted privacy and default search engine options.

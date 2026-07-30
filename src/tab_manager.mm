@@ -145,9 +145,12 @@ class TabManager::Impl {
 
   bool LoadUrl(const std::string& text) {
     const std::string top_level_site = TopLevelSiteFromInput(text, search_engine_id_);
-    if (!top_level_site.empty() &&
-        (ActiveTopLevelSite() != top_level_site || ActiveBrowsingMode() != browsing_mode_)) {
-      ReplaceActiveTabForTopLevelSite(top_level_site);
+    if (tabs_.empty()) {
+      CreateTab();
+    }
+    if (!tabs_.empty() && active_index_ < tabs_.size()) {
+      tabs_[active_index_].top_level_site = top_level_site;
+      tabs_[active_index_].browsing_mode = browsing_mode_;
     }
 
     Tab* tab = ActiveTab();
@@ -240,20 +243,6 @@ class TabManager::Impl {
     return tabs_[active_index_].tab.get();
   }
 
-  std::string ActiveTopLevelSite() const {
-    if (tabs_.empty() || active_index_ >= tabs_.size()) {
-      return std::string();
-    }
-    return tabs_[active_index_].top_level_site;
-  }
-
-  BrowsingMode ActiveBrowsingMode() const {
-    if (tabs_.empty() || active_index_ >= tabs_.size()) {
-      return BrowsingMode::kNormal;
-    }
-    return tabs_[active_index_].browsing_mode;
-  }
-
   std::unique_ptr<Tab> CreateTabForTopLevelSite(const std::string& top_level_site) {
     WKWebsiteDataStore* data_store = cookie_manager_.NormalWebsiteDataStore();
     if (browsing_mode_ == BrowsingMode::kSecure) {
@@ -288,26 +277,6 @@ class TabManager::Impl {
         page_color_callback_(color);
       }
     });
-  }
-
-  void ReplaceActiveTabForTopLevelSite(const std::string& top_level_site) {
-    ManagedTab managed_tab{
-        CreateTabForTopLevelSite(top_level_site),
-        top_level_site,
-        std::string(),
-        std::string(),
-        std::string(),
-        browsing_mode_,
-    };
-    if (tabs_.empty()) {
-      tabs_.push_back(std::move(managed_tab));
-      active_index_ = 0;
-    } else {
-      RemoveTabView(active_index_);
-      tabs_[active_index_] = std::move(managed_tab);
-    }
-    MountActiveTab();
-    EmitTabState();
   }
 
   void MountActiveTab() {
@@ -387,6 +356,7 @@ class TabManager::Impl {
     const size_t source_index = IndexForTab(source_tab);
     if (source_index < tabs_.size()) {
       tabs_[source_index].url = url;
+      tabs_[source_index].top_level_site = TopLevelSiteFromInput(url, search_engine_id_);
       tabs_[source_index].title = title;
       if (!favicon_url.empty()) {
         tabs_[source_index].favicon_url = favicon_url;
