@@ -773,8 +773,8 @@ class BrowserWindow::Impl {
     std::ostringstream output;
     output << "Cookies: " << cookies.size() << "\n\n";
     for (const auto& cookie : cookies) {
-      output << cookie.domain << "\n"
-             << "  " << cookie.name << "=" << cookie.value << "\n"
+      output << cookie.container << " / " << cookie.domain << "\n"
+             << "  " << cookie.name << "=<hidden, " << cookie.value.size() << " chars>\n"
              << "  path: " << cookie.path << "\n";
       if (!cookie.expires.empty()) {
         output << "  expires: " << cookie.expires << "\n";
@@ -792,8 +792,8 @@ class BrowserWindow::Impl {
     [cookie_list_text_view_ setString:@"Loading cookies..."];
     cookie_manager_.ListCookies([this](std::vector<CookieManager::CookieInfo> cookies) {
       std::sort(cookies.begin(), cookies.end(), [](const auto& left, const auto& right) {
-        return std::tie(left.domain, left.name, left.path) < std::tie(right.domain, right.name,
-                                                                      right.path);
+        return std::tie(left.container, left.domain, left.name, left.path) <
+               std::tie(right.container, right.domain, right.name, right.path);
       });
       [cookie_list_text_view_ setString:[NSString stringWithUTF8String:CookieListText(cookies).c_str()]];
     });

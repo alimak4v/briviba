@@ -16,6 +16,7 @@ namespace briviba {
 class CookieManager {
  public:
   struct CookieInfo {
+    std::string container;
     std::string name;
     std::string value;
     std::string domain;

@@ -10,8 +10,10 @@
 #include <cctype>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace briviba {
@@ -101,9 +103,17 @@ NSSet<NSString*>* CacheTypes() {
 
 class CookieManager::Impl {
  public:
-  explicit Impl(std::filesystem::path database_path) {
+  explicit Impl(std::filesystem::path database_path) : database_path_(std::move(database_path)) {
+    std::filesystem::create_directories(database_path_.parent_path());
     normal_data_store_ = [WKWebsiteDataStore defaultDataStore];
-    StartLegacySiteContainerCookieMigration(database_path);
+    sqlite3* raw_database = nullptr;
+    if (sqlite3_open(database_path_.string().c_str(), &raw_database) == SQLITE_OK) {
+      database_.reset(raw_database);
+      EnsureSchema();
+    } else if (raw_database != nullptr) {
+      sqlite3_close(raw_database);
+    }
+    MarkReady();
   }
 
   WKWebsiteDataStore* NormalWebsiteDataStore() const { return normal_data_store_; }
@@ -116,8 +126,26 @@ class CookieManager::Impl {
   }
 
   WKWebsiteDataStore* WebsiteDataStoreForTopLevelSite(const std::string& top_level_site) {
-    (void)top_level_site;
-    return normal_data_store_;
+    const std::string normalized_site = NormalizeDomain(top_level_site);
+    if (normalized_site.empty()) {
+      return normal_data_store_;
+    }
+
+    auto existing = site_data_stores_.find(normalized_site);
+    if (existing != site_data_stores_.end()) {
+      return existing->second;
+    }
+
+    const std::string identifier = IdentifierForTopLevelSite(normalized_site);
+    NSString* identifier_string = [NSString stringWithUTF8String:identifier.c_str()];
+    NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:identifier_string];
+    if (uuid == nil) {
+      return normal_data_store_;
+    }
+    WKWebsiteDataStore* data_store = [WKWebsiteDataStore dataStoreForIdentifier:uuid];
+    site_data_stores_[normalized_site] = data_store;
+    CopyNormalCookiesForDomainToStore(normalized_site, data_store);
+    return data_store;
   }
 
   void WhenReady(std::function<void()> callback) {
@@ -129,25 +157,206 @@ class CookieManager::Impl {
   }
 
   void ClearAllCookiesAndSiteState(std::function<void()> callback) {
-    [normal_data_store_
-        removeDataOfTypes:CookieAndSiteStateTypes()
-            modifiedSince:[NSDate distantPast]
-        completionHandler:^{
-          RunCallback(std::move(callback));
-        }];
+    ClearTypesFromAllStores(CookieAndSiteStateTypes(), std::move(callback));
   }
 
   void ClearAllCaches(std::function<void()> callback) {
-    [normal_data_store_ removeDataOfTypes:CacheTypes()
-                            modifiedSince:[NSDate distantPast]
-                        completionHandler:^{
-                          RunCallback(std::move(callback));
-                        }];
+    ClearTypesFromAllStores(CacheTypes(), std::move(callback));
   }
 
   void ClearCookiesAndSiteStateForDomain(const std::string& domain, std::function<void()> callback) {
     const std::string normalized_domain = NormalizeDomain(domain);
-    WKHTTPCookieStore* cookie_store = [normal_data_store_ httpCookieStore];
+    std::vector<StoreEntry> stores = PersistentStores();
+    if (stores.empty()) {
+      RunCallback(std::move(callback));
+      return;
+    }
+
+    auto pending = std::make_shared<size_t>(stores.size());
+    auto callback_ptr = std::make_shared<std::function<void()>>(std::move(callback));
+    for (const StoreEntry& store : stores) {
+      ClearCookiesAndSiteStateForDomainInStore(
+          store.data_store, normalized_domain,
+          [this, pending, callback_ptr] { CompletePending(pending, callback_ptr); });
+    }
+  }
+
+  void ClearCachesForDomain(const std::string& domain, std::function<void()> callback) {
+    const std::string normalized_domain = NormalizeDomain(domain);
+    std::vector<StoreEntry> stores = PersistentStores();
+    if (stores.empty()) {
+      RunCallback(std::move(callback));
+      return;
+    }
+
+    auto pending = std::make_shared<size_t>(stores.size());
+    auto callback_ptr = std::make_shared<std::function<void()>>(std::move(callback));
+    for (const StoreEntry& store : stores) {
+      RemoveWebsiteDataRecords(store.data_store, CacheTypes(), normalized_domain,
+                               [this, pending, callback_ptr] {
+                                 CompletePending(pending, callback_ptr);
+                               });
+    }
+  }
+
+  void ListCookies(std::function<void(std::vector<CookieInfo>)> callback) {
+    std::vector<StoreEntry> stores = PersistentStores();
+    if (stores.empty()) {
+      RunCallback([callback = std::move(callback)]() mutable { callback({}); });
+      return;
+    }
+
+    auto pending = std::make_shared<size_t>(stores.size());
+    auto infos = std::make_shared<std::vector<CookieInfo>>();
+    auto callback_ptr =
+        std::make_shared<std::function<void(std::vector<CookieInfo>)>>(std::move(callback));
+    for (const StoreEntry& store : stores) {
+      NSString* container = [NSString stringWithUTF8String:store.label.c_str()];
+      [[store.data_store httpCookieStore] getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
+        for (NSHTTPCookie* cookie in cookies) {
+          CookieInfo info;
+          info.container = StringFromNSString(container);
+          info.name = StringFromNSString([cookie name]);
+          info.value = StringFromNSString([cookie value]);
+          info.domain = StringFromNSString([cookie domain]);
+          info.path = StringFromNSString([cookie path]);
+          info.expires = DateString([cookie expiresDate]);
+          info.secure = [cookie isSecure];
+          info.http_only = [[cookie properties][@"HttpOnly"] boolValue];
+          infos->push_back(std::move(info));
+        }
+        if (--*pending == 0 && *callback_ptr) {
+          auto callback = std::move(*callback_ptr);
+          RunCallback([callback = std::move(callback), infos]() mutable {
+            callback(std::move(*infos));
+          });
+        }
+      }];
+    }
+  }
+
+ private:
+  struct StoreEntry {
+    std::string label;
+    WKWebsiteDataStore* data_store = nil;
+  };
+
+  struct DatabaseDeleter {
+    void operator()(sqlite3* database) const {
+      if (database != nullptr) {
+        sqlite3_close(database);
+      }
+    }
+  };
+
+  void EnsureSchema() {
+    const char* sql =
+        "CREATE TABLE IF NOT EXISTS top_level_site_containers("
+        "top_level_site TEXT PRIMARY KEY,"
+        "identifier TEXT NOT NULL UNIQUE"
+        ");";
+    sqlite3_exec(database_.get(), sql, nullptr, nullptr, nullptr);
+  }
+
+  std::string IdentifierForTopLevelSite(const std::string& top_level_site) {
+    if (database_ == nullptr) {
+      return NewUUIDString();
+    }
+
+    Statement lookup(database_.get(),
+                     "SELECT identifier FROM top_level_site_containers WHERE top_level_site = ?1;");
+    if (lookup.get() != nullptr) {
+      sqlite3_bind_text(lookup.get(), 1, top_level_site.c_str(), -1, SQLITE_TRANSIENT);
+      if (sqlite3_step(lookup.get()) == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(lookup.get(), 0);
+        if (text != nullptr) {
+          return reinterpret_cast<const char*>(text);
+        }
+      }
+    }
+
+    const std::string identifier = NewUUIDString();
+    Statement insert(database_.get(),
+                     "INSERT INTO top_level_site_containers(top_level_site, identifier) "
+                     "VALUES(?1, ?2) "
+                     "ON CONFLICT(top_level_site) DO UPDATE SET identifier = excluded.identifier;");
+    if (insert.get() != nullptr) {
+      sqlite3_bind_text(insert.get(), 1, top_level_site.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(insert.get(), 2, identifier.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_step(insert.get());
+    }
+    return identifier;
+  }
+
+  std::string NewUUIDString() const {
+    NSString* uuid = [[NSUUID UUID] UUIDString];
+    const char* utf8 = [uuid UTF8String];
+    return utf8 == nullptr ? std::string() : std::string(utf8);
+  }
+
+  std::vector<StoreEntry> PersistentStores() {
+    std::vector<StoreEntry> stores;
+    stores.push_back(StoreEntry{"normal", normal_data_store_});
+
+    if (database_ != nullptr) {
+      Statement statement(database_.get(),
+                          "SELECT top_level_site, identifier FROM top_level_site_containers "
+                          "WHERE top_level_site IS NOT NULL AND top_level_site <> '' "
+                          "AND identifier IS NOT NULL AND identifier <> '';");
+      if (statement.get() != nullptr) {
+        while (sqlite3_step(statement.get()) == SQLITE_ROW) {
+          const unsigned char* site_text = sqlite3_column_text(statement.get(), 0);
+          const unsigned char* identifier_text = sqlite3_column_text(statement.get(), 1);
+          if (site_text == nullptr || identifier_text == nullptr) {
+            continue;
+          }
+          const std::string site = reinterpret_cast<const char*>(site_text);
+          const std::string identifier = reinterpret_cast<const char*>(identifier_text);
+          NSString* identifier_string = [NSString stringWithUTF8String:identifier.c_str()];
+          NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:identifier_string];
+          if (uuid == nil) {
+            continue;
+          }
+          WKWebsiteDataStore* data_store = [WKWebsiteDataStore dataStoreForIdentifier:uuid];
+          site_data_stores_[site] = data_store;
+          stores.push_back(StoreEntry{site, data_store});
+        }
+      }
+    }
+
+    for (const auto& [site, data_store] : site_data_stores_) {
+      const auto duplicate = std::find_if(stores.begin(), stores.end(), [&site](const auto& store) {
+        return store.label == site;
+      });
+      if (duplicate == stores.end()) {
+        stores.push_back(StoreEntry{site, data_store});
+      }
+    }
+    return stores;
+  }
+
+  void ClearTypesFromAllStores(NSSet<NSString*>* data_types, std::function<void()> callback) {
+    std::vector<StoreEntry> stores = PersistentStores();
+    if (stores.empty()) {
+      RunCallback(std::move(callback));
+      return;
+    }
+
+    auto pending = std::make_shared<size_t>(stores.size());
+    auto callback_ptr = std::make_shared<std::function<void()>>(std::move(callback));
+    for (const StoreEntry& store : stores) {
+      [store.data_store removeDataOfTypes:data_types
+                            modifiedSince:[NSDate distantPast]
+                        completionHandler:^{
+                          CompletePending(pending, callback_ptr);
+                        }];
+    }
+  }
+
+  void ClearCookiesAndSiteStateForDomainInStore(WKWebsiteDataStore* data_store,
+                                                const std::string& normalized_domain,
+                                                std::function<void()> callback) {
+    WKHTTPCookieStore* cookie_store = [data_store httpCookieStore];
     [cookie_store getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
       __block size_t pending_cookie_deletes = 0;
       for (NSHTTPCookie* cookie in cookies) {
@@ -156,8 +365,10 @@ class CookieManager::Impl {
         }
       }
 
-      auto remove_records = [this, normalized_domain, callback = std::move(callback)]() mutable {
-        RemoveWebsiteDataRecords(CookieAndSiteStateTypes(), normalized_domain, std::move(callback));
+      auto remove_records =
+          [this, data_store, normalized_domain, callback = std::move(callback)]() mutable {
+            RemoveWebsiteDataRecords(data_store, CookieAndSiteStateTypes(), normalized_domain,
+                                     std::move(callback));
       };
 
       if (pending_cookie_deletes == 0) {
@@ -181,37 +392,18 @@ class CookieManager::Impl {
     }];
   }
 
-  void ClearCachesForDomain(const std::string& domain, std::function<void()> callback) {
-    RemoveWebsiteDataRecords(CacheTypes(), NormalizeDomain(domain), std::move(callback));
-  }
-
-  void ListCookies(std::function<void(std::vector<CookieInfo>)> callback) {
-    [[normal_data_store_ httpCookieStore] getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
-      std::vector<CookieInfo> infos;
-      infos.reserve([cookies count]);
+  void CopyNormalCookiesForDomainToStore(const std::string& normalized_domain,
+                                         WKWebsiteDataStore* target_data_store) {
+    WKHTTPCookieStore* source_cookie_store = [normal_data_store_ httpCookieStore];
+    WKHTTPCookieStore* target_cookie_store = [target_data_store httpCookieStore];
+    [source_cookie_store getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
       for (NSHTTPCookie* cookie in cookies) {
-        CookieInfo info;
-        info.name = StringFromNSString([cookie name]);
-        info.value = StringFromNSString([cookie value]);
-        info.domain = StringFromNSString([cookie domain]);
-        info.path = StringFromNSString([cookie path]);
-        info.expires = DateString([cookie expiresDate]);
-        info.secure = [cookie isSecure];
-        info.http_only = [[cookie properties][@"HttpOnly"] boolValue];
-        infos.push_back(std::move(info));
+        if (DomainMatches(StringFromNSString([cookie domain]), normalized_domain)) {
+          [target_cookie_store setCookie:cookie completionHandler:nil];
+        }
       }
-      callback(std::move(infos));
     }];
   }
-
- private:
-  struct DatabaseDeleter {
-    void operator()(sqlite3* database) const {
-      if (database != nullptr) {
-        sqlite3_close(database);
-      }
-    }
-  };
 
   void StartLegacySiteContainerCookieMigration(const std::filesystem::path& database_path) {
     if (!std::filesystem::exists(database_path)) {
@@ -301,29 +493,39 @@ class CookieManager::Impl {
     }
   }
 
-  void RemoveWebsiteDataRecords(NSSet<NSString*>* data_types, const std::string& domain,
-                                std::function<void()> callback) {
-    [normal_data_store_ fetchDataRecordsOfTypes:data_types
-                              completionHandler:^(NSArray<WKWebsiteDataRecord*>* records) {
-                                NSMutableArray<WKWebsiteDataRecord*>* matching_records =
-                                    [NSMutableArray array];
-                                for (WKWebsiteDataRecord* record in records) {
-                                  if (DomainMatches(StringFromNSString([record displayName]),
-                                                    domain)) {
-                                    [matching_records addObject:record];
-                                  }
-                                }
-                                if ([matching_records count] == 0) {
-                                  RunCallback(std::move(callback));
-                                  return;
-                                }
-                                [normal_data_store_
-                                      removeDataOfTypes:data_types
-                                        forDataRecords:matching_records
-                                     completionHandler:^{
-                                       RunCallback(std::move(callback));
-                                     }];
-                              }];
+  void RemoveWebsiteDataRecords(WKWebsiteDataStore* data_store, NSSet<NSString*>* data_types,
+                                const std::string& domain, std::function<void()> callback) {
+    [data_store fetchDataRecordsOfTypes:data_types
+                      completionHandler:^(NSArray<WKWebsiteDataRecord*>* records) {
+                        NSMutableArray<WKWebsiteDataRecord*>* matching_records =
+                            [NSMutableArray array];
+                        for (WKWebsiteDataRecord* record in records) {
+                          if (DomainMatches(StringFromNSString([record displayName]), domain)) {
+                            [matching_records addObject:record];
+                          }
+                        }
+                        if ([matching_records count] == 0) {
+                          RunCallback(std::move(callback));
+                          return;
+                        }
+                        [data_store removeDataOfTypes:data_types
+                                      forDataRecords:matching_records
+                                   completionHandler:^{
+                                     RunCallback(std::move(callback));
+                                   }];
+                      }];
+  }
+
+  void CompletePending(std::shared_ptr<size_t> pending,
+                       std::shared_ptr<std::function<void()>> callback) {
+    if (*pending == 0) {
+      return;
+    }
+    --*pending;
+    if (*pending == 0 && *callback) {
+      auto local_callback = std::move(*callback);
+      RunCallback(std::move(local_callback));
+    }
   }
 
   void RunCallback(std::function<void()> callback) {
@@ -338,6 +540,9 @@ class CookieManager::Impl {
   size_t pending_legacy_cookie_operations_ = 0;
   bool ready_ = false;
   std::vector<std::function<void()>> ready_callbacks_;
+  std::filesystem::path database_path_;
+  std::unique_ptr<sqlite3, DatabaseDeleter> database_;
+  std::map<std::string, WKWebsiteDataStore*> site_data_stores_;
   mutable WKWebsiteDataStore* secure_data_store_ = nil;
   WKWebsiteDataStore* normal_data_store_ = nil;
 };

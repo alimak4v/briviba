@@ -7,6 +7,7 @@
 #import <WebKit/WebKit.h>
 
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <string>
 #include <utility>
@@ -15,9 +16,36 @@
 namespace briviba {
 namespace {
 
+constexpr size_t kLoadedTabLimit = 4;
+
 std::string StringFromNSString(NSString* value) {
   const char* utf8 = [value UTF8String];
   return utf8 == nullptr ? std::string() : std::string(utf8);
+}
+
+std::string SiteKeyFromHost(std::string host) {
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  while (!host.empty() && host.back() == '.') {
+    host.pop_back();
+  }
+  for (const std::string& prefix : {"www.", "m.", "mobile."}) {
+    if (host.starts_with(prefix) && host.size() > prefix.size()) {
+      host.erase(0, prefix.size());
+      break;
+    }
+  }
+
+  const size_t last_dot = host.rfind('.');
+  if (last_dot == std::string::npos) {
+    return host;
+  }
+  const size_t previous_dot = host.rfind('.', last_dot - 1);
+  if (previous_dot == std::string::npos) {
+    return host;
+  }
+  return host.substr(previous_dot + 1);
 }
 
 NSString* SearchEngineHomeUrl(const std::string& engine_id) {
@@ -52,7 +80,7 @@ std::string TopLevelSiteFromInput(const std::string& text, const std::string& se
   }
   NSURL* url = [NSURL URLWithString:url_text];
   NSString* host = [[url host] lowercaseString];
-  return host == nil ? std::string() : StringFromNSString(host);
+  return host == nil ? std::string() : SiteKeyFromHost(StringFromNSString(host));
 }
 
 }  // namespace
@@ -74,7 +102,7 @@ class TabManager::Impl {
 
   void CreateTab() {
     tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(),
-                               std::string(), std::string(), std::string(), browsing_mode_});
+                               std::string(), std::string(), std::string(), browsing_mode_, 0});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     EmitTabState();
@@ -104,7 +132,7 @@ class TabManager::Impl {
       auto tab = CreateTabForTopLevelSite(top_level_site);
       tab->SetRestoredUrl(url);
       tabs_.push_back(ManagedTab{std::move(tab), top_level_site, url, std::string(),
-                                 std::string(), browsing_mode_});
+                                 std::string(), browsing_mode_, 0});
     }
 
     active_index_ = std::min(active_index, tabs_.size() - 1);
@@ -149,8 +177,7 @@ class TabManager::Impl {
       CreateTab();
     }
     if (!tabs_.empty() && active_index_ < tabs_.size()) {
-      tabs_[active_index_].top_level_site = top_level_site;
-      tabs_[active_index_].browsing_mode = browsing_mode_;
+      RetargetActiveTabIfNeeded(top_level_site);
     }
 
     Tab* tab = ActiveTab();
@@ -234,6 +261,7 @@ class TabManager::Impl {
     std::string title;
     std::string favicon_url;
     BrowsingMode browsing_mode = BrowsingMode::kNormal;
+    size_t last_active_sequence = 0;
   };
 
   Tab* ActiveTab() {
@@ -263,6 +291,26 @@ class TabManager::Impl {
     return tab;
   }
 
+  void RetargetActiveTabIfNeeded(const std::string& top_level_site) {
+    if (active_index_ >= tabs_.size()) {
+      return;
+    }
+    ManagedTab& managed_tab = tabs_[active_index_];
+    if (managed_tab.top_level_site == top_level_site &&
+        managed_tab.browsing_mode == browsing_mode_) {
+      return;
+    }
+
+    RemoveTabView(active_index_);
+    managed_tab.tab = CreateTabForTopLevelSite(top_level_site);
+    managed_tab.top_level_site = top_level_site;
+    managed_tab.url.clear();
+    managed_tab.title.clear();
+    managed_tab.favicon_url.clear();
+    managed_tab.browsing_mode = browsing_mode_;
+    MountActiveTab();
+  }
+
   void ConfigureTabCallbacks() {
     for (auto& tab : tabs_) {
       ConfigureTabCallbacks(tab.tab.get());
@@ -284,12 +332,53 @@ class TabManager::Impl {
         page_color_callback_(color);
       }
     });
+    tab->SetNavigationRetargetCallback([this, tab](const std::string& url) {
+      return RetargetNavigationIfNeeded(tab, url);
+    });
+  }
+
+  bool RetargetNavigationIfNeeded(Tab* source_tab, const std::string& url) {
+    const size_t source_index = IndexForTab(source_tab);
+    if (source_index >= tabs_.size()) {
+      return false;
+    }
+    const std::string top_level_site = TopLevelSiteFromInput(url, search_engine_id_);
+    if (top_level_site.empty() || (tabs_[source_index].top_level_site == top_level_site &&
+                                   tabs_[source_index].browsing_mode == browsing_mode_)) {
+      return false;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      RetargetTabNavigation(source_index, top_level_site, url);
+    });
+    return true;
+  }
+
+  void RetargetTabNavigation(size_t index, const std::string& top_level_site,
+                             const std::string& url) {
+    if (index >= tabs_.size()) {
+      return;
+    }
+    RemoveTabView(index);
+    ManagedTab& managed_tab = tabs_[index];
+    managed_tab.tab = CreateTabForTopLevelSite(top_level_site);
+    managed_tab.top_level_site = top_level_site;
+    managed_tab.url = url;
+    managed_tab.title.clear();
+    managed_tab.favicon_url.clear();
+    managed_tab.browsing_mode = browsing_mode_;
+    if (index == active_index_) {
+      MountActiveTab();
+    }
+    managed_tab.tab->LoadUrl(url);
+    EmitTabState();
   }
 
   void MountActiveTab() {
     if (tabs_.empty() || active_index_ >= tabs_.size()) {
       return;
     }
+    tabs_[active_index_].last_active_sequence = ++activation_sequence_;
 
     for (size_t index = 0; index < tabs_.size(); ++index) {
       if (index != active_index_) {
@@ -310,6 +399,34 @@ class TabManager::Impl {
         ]];
       }
       [tab_view setHidden:index != active_index_];
+    }
+    TrimLoadedTabs();
+  }
+
+  void TrimLoadedTabs() {
+    size_t loaded_count = 0;
+    for (const auto& tab : tabs_) {
+      if (tab.tab->LoadedNativeView() != nil) {
+        ++loaded_count;
+      }
+    }
+    while (loaded_count > kLoadedTabLimit) {
+      size_t unload_index = tabs_.size();
+      size_t oldest_sequence = SIZE_MAX;
+      for (size_t index = 0; index < tabs_.size(); ++index) {
+        if (index == active_index_ || tabs_[index].tab->LoadedNativeView() == nil) {
+          continue;
+        }
+        if (tabs_[index].last_active_sequence < oldest_sequence) {
+          oldest_sequence = tabs_[index].last_active_sequence;
+          unload_index = index;
+        }
+      }
+      if (unload_index >= tabs_.size()) {
+        return;
+      }
+      tabs_[unload_index].tab->Unload();
+      --loaded_count;
     }
   }
 
@@ -384,6 +501,7 @@ class TabManager::Impl {
   std::string search_engine_id_ = "duckduckgo";
   std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
+  size_t activation_sequence_ = 0;
   NSView* container_view_ = nil;
 };
 

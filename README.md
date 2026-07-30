@@ -41,11 +41,11 @@ The project experiments with browser chrome that feels native to macOS without c
 - Drag files onto the sidebar plus button to open them in new tabs.
 - Memory and disk favicon cache for faster tab rendering.
 - Lazy session restore: only the active restored tab loads at startup.
-- Warm tab switching: loaded inactive `WKWebView` instances stay alive instead of being destroyed on every tab change.
-- Cross-site navigations reuse the active `WKWebView` instead of rebuilding the page process.
-- Persistent normal-mode WebKit storage for logins, cookies, and site data between sessions.
+- Warm tab switching with a small live `WKWebView` cap to reduce memory use.
+- Per-site persistent WebKit storage containers for normal-mode cookies and site data.
 - Secure Mode with non-persistent WebKit storage.
-- Settings window with persisted privacy, default search engine options, cookie viewing, and storage cleanup.
+- Settings window with persisted privacy, default search engine options, redacted cookie viewing,
+  and storage cleanup.
 - Default search engines: DuckDuckGo, Google, Bing, and Yandex.
 - Context menu on sidebar tabs for Back, Forward, Reload, Edit Address, and Close Tab.
 - SQLite-backed settings, history, bookmarks, and downloads.

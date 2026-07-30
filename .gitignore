@@ -3,14 +3,14 @@ build/
 compile_commands.json
 
 # Local app/user data
-Briviba/
-Application Support/
-FaviconCache/
-WebsiteData/
-Cookies/
-Local Storage/
-IndexedDB/
-Service Worker/
+/Briviba/
+/Application Support/
+/FaviconCache/
+/WebsiteData/
+/Cookies/
+/Local Storage/
+/IndexedDB/
+/Service Worker/
 *.sqlite
 *.sqlite3
 *.sqlite3-*
