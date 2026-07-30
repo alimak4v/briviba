@@ -2,6 +2,7 @@
 #define BRIVIBA_COOKIE_MANAGER_H_
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -20,6 +21,7 @@ class CookieManager {
   CookieManager& operator=(const CookieManager&) = delete;
 
   static std::filesystem::path DefaultDatabasePath();
+  void WhenReady(std::function<void()> callback);
 
 #ifdef __OBJC__
   WKWebsiteDataStore* NormalWebsiteDataStore() const;

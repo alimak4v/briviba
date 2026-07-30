@@ -288,12 +288,6 @@ class BrowserWindow::Impl {
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
     }
     tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
-    const bool restored_session =
-        !secure_mode_ && tab_manager_.RestoreTabs(settings_manager_.SessionTabUrls(),
-                                                  settings_manager_.SessionActiveTabIndex());
-    if (!restored_session) {
-      tab_manager_.CreateInitialTab();
-    }
     traffic_light_stack_ = TrafficLightStack(window_control_bridge_);
 
     [content_view_ addSubview:chrome_background_];
@@ -328,9 +322,7 @@ class BrowserWindow::Impl {
       [[traffic_light_stack_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
                                                        constant:23.0],
     ]];
-    if (!restored_session) {
-      tab_manager_.LoadUrl(DefaultStartUrl());
-    }
+    cookie_manager_.WhenReady([this] { LoadInitialSession(); });
   }
 
   ~Impl() { [window_ close]; }
@@ -343,6 +335,20 @@ class BrowserWindow::Impl {
   void CreateNewTab() {
     tab_manager_.CreateTab();
     tab_manager_.LoadUrl(DefaultStartUrl());
+  }
+
+  void LoadInitialSession() {
+    if (initial_session_loaded_) {
+      return;
+    }
+    initial_session_loaded_ = true;
+    const bool restored_session =
+        !secure_mode_ && tab_manager_.RestoreTabs(settings_manager_.SessionTabUrls(),
+                                                  settings_manager_.SessionActiveTabIndex());
+    if (!restored_session) {
+      tab_manager_.CreateInitialTab();
+      tab_manager_.LoadUrl(DefaultStartUrl());
+    }
   }
 
   std::string DefaultStartUrl() const {
@@ -571,6 +577,7 @@ class BrowserWindow::Impl {
   BrivibaSettingsBridge* settings_bridge_ = nil;
   NSWindow* settings_window_ = nil;
   Tab::PageColor last_page_color_;
+  bool initial_session_loaded_ = false;
   bool secure_mode_ = false;
 };
 
