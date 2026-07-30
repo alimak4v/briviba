@@ -254,6 +254,18 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 @property(nonatomic) NSInteger tabIndex;
 @end
 
+@interface BrivibaHoverPreviewView : NSView
+@end
+
+@implementation BrivibaHoverPreviewView
+
+- (NSView*)hitTest:(NSPoint)point {
+  (void)point;
+  return nil;
+}
+
+@end
+
 @implementation BrivibaSidebarTabItemView {
   NSTrackingArea* tracking_area_;
   NSView* hover_preview_view_;
@@ -343,7 +355,7 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
       std::max(panel_min_height, vertical_padding * 2.0 + title_height + 16.0);
 
   NSView* content_view =
-      [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
+      [[BrivibaHoverPreviewView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
   [content_view setWantsLayer:YES];
   [[content_view layer] setMasksToBounds:NO];
   [[content_view layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
