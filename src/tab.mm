@@ -220,6 +220,13 @@ NSString* SafariLikeUserAgent() {
           "KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 }
 
+void ConfigureWebView(WKWebViewConfiguration* configuration) {
+  if (@available(macOS 12.3, *)) {
+    [[configuration preferences] setElementFullscreenEnabled:YES];
+  }
+  [configuration setMediaTypesRequiringUserActionForPlayback:WKAudiovisualMediaTypeNone];
+}
+
 }  // namespace
 
 class Tab::Impl {
@@ -334,6 +341,7 @@ class Tab::Impl {
     }
 
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+    ConfigureWebView(configuration);
     if (website_data_store_ != nil) {
       [configuration setWebsiteDataStore:website_data_store_];
     }
