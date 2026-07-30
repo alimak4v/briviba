@@ -3,12 +3,28 @@ build/
 compile_commands.json
 
 # Local app/user data
+Briviba/
+Application Support/
+FaviconCache/
+WebsiteData/
+Cookies/
+Local Storage/
+IndexedDB/
+Service Worker/
 *.sqlite
 *.sqlite3
 *.sqlite3-*
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
 *.db
 *.db-*
+*.db-shm
+*.db-wal
+*.binarycookies
 *.cookies
+*.localstorage
 *.session
 
 # Local environment and logs
