@@ -470,7 +470,10 @@ NSString* HostFromUrl(const std::string& url) {
 }
 
 NSString* FallbackTabLabel(const Sidebar::TabState& tab) {
-  NSString* source = tab.title.empty() ? HostFromUrl(tab.url) : StringFromStdString(tab.title);
+  NSString* source = HostFromUrl(tab.url);
+  if ([source length] == 0) {
+    source = StringFromStdString(tab.title);
+  }
   NSString* trimmed =
       [source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if ([trimmed length] == 0) {
