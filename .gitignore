@@ -1,3 +1,20 @@
 build/
 .DS_Store
 compile_commands.json
+
+# Local app/user data
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.cookies
+*.session
+
+# Local environment and logs
+.env
+.env.*
+*.log
+
+# User-local CMake files
+CMakeUserPresets.json
