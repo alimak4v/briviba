@@ -16,7 +16,8 @@
 namespace briviba {
 namespace {
 
-constexpr size_t kLoadedTabLimit = 4;
+constexpr size_t kLoadedTabSoftLimit = 4;
+constexpr size_t kLoadedTabHardLimit = 10;
 
 std::string StringFromNSString(NSString* value) {
   const char* utf8 = [value UTF8String];
@@ -81,18 +82,6 @@ std::string TopLevelSiteFromInput(const std::string& text, const std::string& se
   NSURL* url = [NSURL URLWithString:url_text];
   NSString* host = [[url host] lowercaseString];
   return host == nil ? std::string() : SiteKeyFromHost(StringFromNSString(host));
-}
-
-bool Contains(const std::string& value, const std::string& pattern) {
-  return value.find(pattern) != std::string::npos;
-}
-
-bool IsMediaPlaybackUrl(const std::string& url, const std::string& top_level_site) {
-  if (top_level_site == "youtube.com") {
-    return Contains(url, "/watch") || Contains(url, "/shorts") || Contains(url, "/live") ||
-           Contains(url, "music.youtube.com");
-  }
-  return false;
 }
 
 }  // namespace
@@ -397,12 +386,15 @@ class TabManager::Impl {
         ++loaded_count;
       }
     }
-    while (loaded_count > kLoadedTabLimit) {
+    while (loaded_count > kLoadedTabSoftLimit) {
+      const bool memory_pressure_limit_reached = loaded_count > kLoadedTabHardLimit;
       size_t unload_index = tabs_.size();
       size_t oldest_sequence = SIZE_MAX;
       for (size_t index = 0; index < tabs_.size(); ++index) {
-        if (index == active_index_ || tabs_[index].tab->LoadedNativeView() == nil ||
-            IsMediaPlaybackTab(tabs_[index])) {
+        if (index == active_index_ || tabs_[index].tab->LoadedNativeView() == nil) {
+          continue;
+        }
+        if (!memory_pressure_limit_reached && tabs_[index].tab->ShouldStayLoaded()) {
           continue;
         }
         if (tabs_[index].last_active_sequence < oldest_sequence) {
@@ -416,11 +408,6 @@ class TabManager::Impl {
       tabs_[unload_index].tab->Unload();
       --loaded_count;
     }
-  }
-
-  bool IsMediaPlaybackTab(const ManagedTab& tab) const {
-    const std::string url = tab.url.empty() ? tab.tab->CurrentUrl() : tab.url;
-    return IsMediaPlaybackUrl(url, tab.top_level_site);
   }
 
   void RemoveTabView(size_t index) {

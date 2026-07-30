@@ -5,6 +5,7 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
+#include <chrono>
 #include <cctype>
 #include <cstdio>
 #include <string>
@@ -214,8 +215,29 @@
 
 @end
 
+@interface BrivibaActivityHandler : NSObject <WKScriptMessageHandler> {
+ @public
+  briviba::Tab* tab;
+}
+@end
+
+@implementation BrivibaActivityHandler
+
+- (void)userContentController:(WKUserContentController*)userContentController
+      didReceiveScriptMessage:(WKScriptMessage*)message {
+  (void)userContentController;
+  (void)message;
+  if (tab != nullptr) {
+    tab->MarkPageActivity();
+  }
+}
+
+@end
+
 namespace briviba {
 namespace {
+
+constexpr std::chrono::seconds kRecentActivityWindow(180);
 
 std::string TrimAsciiWhitespace(const std::string& text) {
   size_t begin = 0;
@@ -293,12 +315,86 @@ void ConfigureWebView(WKWebViewConfiguration* configuration) {
   [configuration setMediaTypesRequiringUserActionForPlayback:WKAudiovisualMediaTypeNone];
 }
 
+double MonotonicSeconds() {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+NSString* PageActivityScriptSource() {
+  return
+      @"(() => {"
+       "if (window.__brivibaActivityInstalled) return;"
+       "window.__brivibaActivityInstalled = true;"
+       "let lastPost = 0;"
+       "let mutationCount = 0;"
+       "let animationFrameCount = 0;"
+       "const post = (kind) => {"
+       "  const now = Date.now();"
+       "  if (now - lastPost < 2000) return;"
+       "  lastPost = now;"
+       "  try { window.webkit.messageHandlers.brivibaActivity.postMessage(kind); } catch (_) {}"
+       "};"
+       "const mediaActive = () => {"
+       "  try {"
+       "    return Array.from(document.querySelectorAll('audio,video')).some((element) =>"
+       "      !element.paused && !element.ended && element.readyState > 1);"
+       "  } catch (_) { return false; }"
+       "};"
+       "document.addEventListener('play', () => post('media'), true);"
+       "document.addEventListener('playing', () => post('media'), true);"
+       "document.addEventListener('timeupdate', () => { if (mediaActive()) post('media'); }, true);"
+       "setInterval(() => { if (mediaActive()) post('media'); }, 5000);"
+       "try {"
+       "  const observer = new MutationObserver((mutations) => { mutationCount += mutations.length; });"
+       "  const startObserver = () => observer.observe(document.documentElement || document, {"
+       "    childList: true, subtree: true, characterData: true, attributes: true"
+       "  });"
+       "  if (document.documentElement) startObserver();"
+       "  else document.addEventListener('DOMContentLoaded', startObserver, { once: true });"
+       "  setInterval(() => {"
+       "    if (mutationCount >= 80) post('page-update');"
+       "    mutationCount = 0;"
+       "  }, 5000);"
+       "} catch (_) {}"
+       "try {"
+       "  const nativeRequestAnimationFrame = window.requestAnimationFrame;"
+       "  if (nativeRequestAnimationFrame && !nativeRequestAnimationFrame.__brivibaWrapped) {"
+       "    const wrappedRequestAnimationFrame = function(callback) {"
+       "      animationFrameCount += 1;"
+       "      return nativeRequestAnimationFrame.call(window, callback);"
+       "    };"
+       "    wrappedRequestAnimationFrame.__brivibaWrapped = true;"
+       "    window.requestAnimationFrame = wrappedRequestAnimationFrame;"
+       "    setInterval(() => {"
+       "      if (animationFrameCount >= 90 && document.querySelector('canvas')) post('animation');"
+       "      animationFrameCount = 0;"
+       "    }, 5000);"
+       "  }"
+       "} catch (_) {}"
+       "try {"
+       "  const NativeWebSocket = window.WebSocket;"
+       "  if (NativeWebSocket && !NativeWebSocket.__brivibaWrapped) {"
+       "    const WrappedWebSocket = function(...args) {"
+       "      const socket = new NativeWebSocket(...args);"
+       "      socket.addEventListener('message', () => post('websocket'));"
+       "      return socket;"
+       "    };"
+       "    Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);"
+       "    WrappedWebSocket.prototype = NativeWebSocket.prototype;"
+       "    WrappedWebSocket.__brivibaWrapped = true;"
+       "    window.WebSocket = WrappedWebSocket;"
+       "  }"
+       "} catch (_) {}"
+       "})();";
+}
+
 }  // namespace
 
 class Tab::Impl {
  public:
-  Impl(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
-      : website_data_store_(website_data_store), download_manager_(download_manager) {}
+  Impl(Tab* owner, WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
+      : owner_(owner), website_data_store_(website_data_store), download_manager_(download_manager) {}
+
+  ~Impl() { DetachActivityHandler(); }
 
   bool LoadUrl(const std::string& text) {
     EnsureLoaded();
@@ -347,10 +443,23 @@ class Tab::Impl {
     return utf8 == nullptr ? std::string() : std::string(utf8);
   }
 
+  bool ShouldStayLoaded() const {
+    if (web_view_ == nil) {
+      return false;
+    }
+    if ([web_view_ isLoading]) {
+      return true;
+    }
+    return MonotonicSeconds() - last_page_activity_seconds_ <= kRecentActivityWindow.count();
+  }
+
+  void MarkPageActivity() { last_page_activity_seconds_ = MonotonicSeconds(); }
+
   void Unload() {
     current_url_ = CurrentUrl();
     [web_view_ setNavigationDelegate:nil];
     [web_view_ setUIDelegate:nil];
+    DetachActivityHandler();
     [web_view_ removeFromSuperview];
     navigation_delegate_ = nil;
     web_view_ = nil;
@@ -417,10 +526,21 @@ class Tab::Impl {
 
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
     ConfigureWebView(configuration);
+    WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
+    WKUserScript* activity_script =
+        [[WKUserScript alloc] initWithSource:PageActivityScriptSource()
+                               injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                            forMainFrameOnly:NO];
+    [user_content_controller addUserScript:activity_script];
+    activity_handler_ = [[BrivibaActivityHandler alloc] init];
+    activity_handler_->tab = owner_;
+    [user_content_controller addScriptMessageHandler:activity_handler_ name:@"brivibaActivity"];
+    [configuration setUserContentController:user_content_controller];
     if (website_data_store_ != nil) {
       [configuration setWebsiteDataStore:website_data_store_];
     }
     web_view_ = [[BrivibaWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    MarkPageActivity();
     [web_view_ setCustomUserAgent:SafariLikeUserAgent()];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
     navigation_delegate_->download_manager = &download_manager_;
@@ -450,6 +570,15 @@ class Tab::Impl {
     }
   }
 
+  void DetachActivityHandler() {
+    if (web_view_ != nil && activity_handler_ != nil) {
+      [[web_view_ configuration].userContentController removeScriptMessageHandlerForName:@"brivibaActivity"];
+      activity_handler_->tab = nullptr;
+      activity_handler_ = nil;
+    }
+  }
+
+  Tab* owner_;
   WKWebsiteDataStore* website_data_store_ = nil;
   DownloadManager& download_manager_;
   NavigationStateCallback navigation_state_callback_;
@@ -458,11 +587,13 @@ class Tab::Impl {
   std::string search_engine_id_ = "duckduckgo";
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
+  BrivibaActivityHandler* activity_handler_ = nil;
   WKWebView* web_view_ = nil;
+  double last_page_activity_seconds_ = 0.0;
 };
 
 Tab::Tab(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
-    : impl_(std::make_unique<Impl>(website_data_store, download_manager)) {}
+    : impl_(std::make_unique<Impl>(this, website_data_store, download_manager)) {}
 
 Tab::~Tab() = default;
 
@@ -476,6 +607,14 @@ void Tab::SetRestoredUrl(const std::string& url) {
 
 std::string Tab::CurrentUrl() const {
   return impl_->CurrentUrl();
+}
+
+bool Tab::ShouldStayLoaded() const {
+  return impl_->ShouldStayLoaded();
+}
+
+void Tab::MarkPageActivity() {
+  impl_->MarkPageActivity();
 }
 
 void Tab::Unload() {

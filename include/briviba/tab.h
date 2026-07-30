@@ -40,6 +40,8 @@ class Tab {
   bool LoadUrl(const std::string& text);
   void SetRestoredUrl(const std::string& url);
   std::string CurrentUrl() const;
+  bool ShouldStayLoaded() const;
+  void MarkPageActivity();
   void Unload();
   void GoBack();
   void GoForward();
