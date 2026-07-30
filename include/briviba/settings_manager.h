@@ -2,8 +2,10 @@
 #define BRIVIBA_SETTINGS_MANAGER_H_
 
 #include <filesystem>
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace briviba {
 
@@ -22,6 +24,9 @@ class SettingsManager {
   bool ToggleStartWithSecureMode();
   std::string DefaultSearchEngine() const;
   void SetDefaultSearchEngine(const std::string& engine_id);
+  std::vector<std::string> SessionTabUrls() const;
+  size_t SessionActiveTabIndex() const;
+  void SetSessionState(const std::vector<std::string>& urls, size_t active_index);
 
  private:
   class Impl;

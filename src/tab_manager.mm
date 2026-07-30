@@ -6,6 +6,7 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -78,6 +79,34 @@ class TabManager::Impl {
     MountActiveTab();
     EmitTabState();
     EmitDefaultPageColor();
+  }
+
+  bool RestoreTabs(const std::vector<std::string>& urls, size_t active_index) {
+    std::vector<std::string> restore_urls;
+    restore_urls.reserve(urls.size());
+    for (const std::string& url : urls) {
+      if (!url.empty()) {
+        restore_urls.push_back(url);
+      }
+    }
+    if (restore_urls.empty()) {
+      return false;
+    }
+
+    for (NSView* subview in [container_view_ subviews]) {
+      [subview removeFromSuperview];
+    }
+    tabs_.clear();
+    active_index_ = 0;
+
+    for (const std::string& url : restore_urls) {
+      CreateTab();
+      LoadUrl(url);
+    }
+
+    SelectTab(std::min(active_index, tabs_.empty() ? size_t{0} : tabs_.size() - 1));
+    EmitTabState();
+    return true;
   }
 
   void SelectTab(size_t index) {
@@ -379,6 +408,10 @@ void TabManager::CreateInitialTab() {
 
 void TabManager::CreateTab() {
   impl_->CreateTab();
+}
+
+bool TabManager::RestoreTabs(const std::vector<std::string>& urls, size_t active_index) {
+  return impl_->RestoreTabs(urls, active_index);
 }
 
 void TabManager::SelectTab(size_t index) {

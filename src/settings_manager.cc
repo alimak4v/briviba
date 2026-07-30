@@ -4,16 +4,21 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace briviba {
 namespace {
 
 constexpr const char* kStartWithSecureModeKey = "start_with_secure_mode";
 constexpr const char* kDefaultSearchEngineKey = "default_search_engine";
+constexpr const char* kSessionTabsKey = "session_tabs";
+constexpr const char* kSessionActiveTabKey = "session_active_tab";
 constexpr const char* kDefaultSearchEngine = "duckduckgo";
 
 class Statement {
@@ -38,6 +43,38 @@ class Statement {
  private:
   sqlite3_stmt* statement_ = nullptr;
 };
+
+std::vector<std::string> SplitLines(const std::string& value) {
+  std::vector<std::string> lines;
+  size_t start = 0;
+  while (start <= value.size()) {
+    const size_t end = value.find('\n', start);
+    std::string line = value.substr(start, end == std::string::npos ? std::string::npos
+                                                                    : end - start);
+    if (!line.empty()) {
+      lines.push_back(std::move(line));
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+  return lines;
+}
+
+std::string JoinLines(const std::vector<std::string>& values) {
+  std::string result;
+  for (const std::string& value : values) {
+    if (value.empty()) {
+      continue;
+    }
+    if (!result.empty()) {
+      result += '\n';
+    }
+    result += value;
+  }
+  return result;
+}
 
 }  // namespace
 
@@ -74,6 +111,38 @@ class SettingsManager::Impl {
       return;
     }
     SetStringValue(kDefaultSearchEngineKey, engine_id);
+  }
+
+  std::vector<std::string> SessionTabUrls() const {
+    return SplitLines(StringValue(kSessionTabsKey, std::string()));
+  }
+
+  size_t SessionActiveTabIndex() const {
+    const std::string value = StringValue(kSessionActiveTabKey, "0");
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(value.c_str(), &end, 10);
+    if (end == value.c_str() || (end != nullptr && *end != '\0')) {
+      return 0;
+    }
+    return static_cast<size_t>(parsed);
+  }
+
+  void SetSessionState(const std::vector<std::string>& urls, size_t active_index) {
+    std::vector<std::string> filtered_urls;
+    filtered_urls.reserve(urls.size());
+    for (const std::string& url : urls) {
+      if (!url.empty()) {
+        filtered_urls.push_back(url);
+      }
+    }
+    if (filtered_urls.empty()) {
+      return;
+    }
+
+    const size_t clamped_active_index =
+        std::min(active_index, filtered_urls.empty() ? size_t{0} : filtered_urls.size() - 1);
+    SetStringValue(kSessionTabsKey, JoinLines(filtered_urls));
+    SetStringValue(kSessionActiveTabKey, std::to_string(clamped_active_index));
   }
 
   bool ToggleStartWithSecureMode() {
@@ -190,6 +259,18 @@ std::string SettingsManager::DefaultSearchEngine() const {
 
 void SettingsManager::SetDefaultSearchEngine(const std::string& engine_id) {
   impl_->SetDefaultSearchEngine(engine_id);
+}
+
+std::vector<std::string> SettingsManager::SessionTabUrls() const {
+  return impl_->SessionTabUrls();
+}
+
+size_t SettingsManager::SessionActiveTabIndex() const {
+  return impl_->SessionActiveTabIndex();
+}
+
+void SettingsManager::SetSessionState(const std::vector<std::string>& urls, size_t active_index) {
+  impl_->SetSessionState(urls, active_index);
 }
 
 }  // namespace briviba

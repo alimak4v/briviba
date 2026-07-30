@@ -271,18 +271,29 @@ class BrowserWindow::Impl {
     tab_manager_.SetTabStateCallback([this](const std::vector<TabManager::TabState>& tabs,
                                             size_t active_index) {
       std::vector<Sidebar::TabState> sidebar_tabs;
+      std::vector<std::string> session_urls;
       sidebar_tabs.reserve(tabs.size());
+      session_urls.reserve(tabs.size());
       for (const auto& tab : tabs) {
         sidebar_tabs.push_back(Sidebar::TabState{tab.url, tab.title, tab.favicon_url});
+        session_urls.push_back(tab.url);
       }
       sidebar_.SetTabState(sidebar_tabs, active_index);
+      if (!secure_mode_) {
+        settings_manager_.SetSessionState(session_urls, active_index);
+      }
     });
     if (settings_manager_.StartWithSecureMode()) {
       secure_mode_ = true;
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
     }
     tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
-    tab_manager_.CreateInitialTab();
+    const bool restored_session =
+        !secure_mode_ && tab_manager_.RestoreTabs(settings_manager_.SessionTabUrls(),
+                                                  settings_manager_.SessionActiveTabIndex());
+    if (!restored_session) {
+      tab_manager_.CreateInitialTab();
+    }
     traffic_light_stack_ = TrafficLightStack(window_control_bridge_);
 
     [content_view_ addSubview:chrome_background_];
@@ -317,7 +328,9 @@ class BrowserWindow::Impl {
       [[traffic_light_stack_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
                                                        constant:23.0],
     ]];
-    tab_manager_.LoadUrl(DefaultStartUrl());
+    if (!restored_session) {
+      tab_manager_.LoadUrl(DefaultStartUrl());
+    }
   }
 
   ~Impl() { [window_ close]; }

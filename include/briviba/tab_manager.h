@@ -41,6 +41,7 @@ class TabManager {
 
   void CreateInitialTab();
   void CreateTab();
+  bool RestoreTabs(const std::vector<std::string>& urls, size_t active_index);
   void SelectTab(size_t index);
   void CloseTab(size_t index);
   bool LoadUrl(const std::string& text);
