@@ -257,7 +257,7 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 
 @implementation BrivibaSidebarTabItemView {
   NSTrackingArea* tracking_area_;
-  NSPanel* hover_panel_;
+  NSView* hover_preview_view_;
 }
 
 - (void)dealloc {
@@ -311,7 +311,7 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 }
 
 - (void)showHoverPreview {
-  if (hover_panel_ != nil || [self window] == nil) {
+  if (hover_preview_view_ != nil || [self window] == nil || [[self window] contentView] == nil) {
     return;
   }
 
@@ -326,24 +326,25 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
     domain = title;
   }
 
-  constexpr CGFloat panel_width = 238.0;
-  constexpr CGFloat panel_min_height = 62.0;
+  constexpr CGFloat panel_width = 214.0;
+  constexpr CGFloat panel_min_height = 52.0;
   constexpr CGFloat horizontal_padding = 14.0;
-  constexpr CGFloat vertical_padding = 11.0;
+  constexpr CGFloat vertical_padding = 8.0;
   const CGFloat text_width = panel_width - horizontal_padding * 2.0;
 
-  NSFont* title_font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightSemibold];
-  NSFont* domain_font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular];
+  NSFont* title_font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+  NSFont* domain_font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular];
   NSDictionary* title_attributes = @{NSFontAttributeName : title_font};
   NSRect title_bounds =
-      [title boundingRectWithSize:NSMakeSize(text_width, 34.0)
+      [title boundingRectWithSize:NSMakeSize(text_width, 28.0)
                           options:NSStringDrawingUsesLineFragmentOrigin
                        attributes:title_attributes];
-  const CGFloat title_height = std::min<CGFloat>(34.0, std::ceil(NSHeight(title_bounds)));
+  const CGFloat title_height = std::min<CGFloat>(28.0, std::ceil(NSHeight(title_bounds)));
   const CGFloat panel_height =
-      std::max(panel_min_height, vertical_padding * 2.0 + title_height + 18.0);
+      std::max(panel_min_height, vertical_padding * 2.0 + title_height + 16.0);
 
-  NSView* content_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
+  NSView* content_view =
+      [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
   [content_view setWantsLayer:YES];
   [[content_view layer] setMasksToBounds:NO];
   [[content_view layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
@@ -398,41 +399,26 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
     [[domain_label trailingAnchor] constraintEqualToAnchor:[title_label trailingAnchor]],
   ]];
 
-  NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0.0, 0.0, panel_width, panel_height)
-                                             styleMask:NSWindowStyleMaskBorderless |
-                                                       NSWindowStyleMaskNonactivatingPanel
-                                               backing:NSBackingStoreBuffered
-                                                 defer:NO];
-  [panel setOpaque:NO];
-  [panel setBackgroundColor:[NSColor clearColor]];
-  [panel setHasShadow:NO];
-  [panel setIgnoresMouseEvents:YES];
-  [panel setLevel:NSFloatingWindowLevel];
-  [panel setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
-                               NSWindowCollectionBehaviorFullScreenAuxiliary];
-  [panel setContentView:content_view];
-
+  [content_view setAutoresizingMask:NSViewNotSizable];
   NSRect item_rect_in_window = [self convertRect:[self bounds] toView:nil];
-  NSRect item_rect_on_screen = [[self window] convertRectToScreen:item_rect_in_window];
-  NSScreen* screen = [[self window] screen] == nil ? [NSScreen mainScreen] : [[self window] screen];
-  NSRect visible_frame = [screen visibleFrame];
-  CGFloat x = NSMaxX(item_rect_on_screen) + 10.0;
-  CGFloat y = NSMidY(item_rect_on_screen) - panel_height / 2.0;
-  y = std::max(NSMinY(visible_frame) + 8.0,
-               std::min(y, NSMaxY(visible_frame) - panel_height - 8.0));
-  [panel setFrame:NSMakeRect(x, y, panel_width, panel_height) display:NO];
-  [[self window] addChildWindow:panel ordered:NSWindowAbove];
-  [panel orderFront:nil];
-  hover_panel_ = panel;
+  NSView* root_view = [[self window] contentView];
+  NSRect item_rect_in_root = [root_view convertRect:item_rect_in_window fromView:nil];
+  CGFloat x = NSMaxX(item_rect_in_root) + 10.0;
+  CGFloat y = NSMidY(item_rect_in_root) - panel_height / 2.0;
+  NSRect root_bounds = [root_view bounds];
+  y = std::max(NSMinY(root_bounds) + 8.0,
+               std::min(y, NSMaxY(root_bounds) - panel_height - 8.0));
+  [content_view setFrame:NSMakeRect(x, y, panel_width, panel_height)];
+  [root_view addSubview:content_view positioned:NSWindowAbove relativeTo:nil];
+  hover_preview_view_ = content_view;
 }
 
 - (void)hideHoverPreview {
-  if (hover_panel_ == nil) {
+  if (hover_preview_view_ == nil) {
     return;
   }
-  [[self window] removeChildWindow:hover_panel_];
-  [hover_panel_ orderOut:nil];
-  hover_panel_ = nil;
+  [hover_preview_view_ removeFromSuperview];
+  hover_preview_view_ = nil;
 }
 
 @end
@@ -677,7 +663,8 @@ NSImage* CachedFavicon(NSString* cache_key) {
 NSURL* FaviconSourceUrl(const Sidebar::TabState& tab) {
   if (!tab.favicon_url.empty()) {
     NSURL* explicit_url = [NSURL URLWithString:StringFromStdString(tab.favicon_url)];
-    if (explicit_url != nil) {
+    NSString* extension = [[[explicit_url pathExtension] lowercaseString] copy];
+    if (explicit_url != nil && ![extension isEqualToString:@"svg"]) {
       return explicit_url;
     }
   }
