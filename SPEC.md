@@ -129,23 +129,12 @@ Sidebar никогда не меняет цвет.
 
 Используется по умолчанию.
 
-Каждый top-level сайт имеет собственный контейнер.
+Normal mode использует стандартное persistent WebKit-хранилище приложения.
 
-Внутри контейнера каждый встроенный origin получает собственное независимое состояние.
+Сохраняются между сессиями
 
-Например
-
-youtube.com
-
-- google.com
-- doubleclick.net
-- ytimg.com
-
-Каждый имеет независимое состояние.
-
-Изолируются
-
-- Cookies
+- cookies
+- login state
 - LocalStorage
 - SessionStorage
 - IndexedDB

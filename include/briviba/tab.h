@@ -37,6 +37,7 @@ class Tab {
   Tab& operator=(const Tab&) = delete;
 
   bool LoadUrl(const std::string& text);
+  void SetRestoredUrl(const std::string& url);
   std::string CurrentUrl() const;
   void Unload();
   void GoBack();
@@ -48,6 +49,7 @@ class Tab {
 
 #ifdef __OBJC__
   NSView* NativeView() const;
+  NSView* LoadedNativeView() const;
 #endif
 
  private:

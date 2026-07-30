@@ -225,9 +225,7 @@ NSString* SafariLikeUserAgent() {
 class Tab::Impl {
  public:
   Impl(WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
-      : website_data_store_(website_data_store), download_manager_(download_manager) {
-    EnsureLoaded();
-  }
+      : website_data_store_(website_data_store), download_manager_(download_manager) {}
 
   bool LoadUrl(const std::string& text) {
     EnsureLoaded();
@@ -247,6 +245,17 @@ class Tab::Impl {
     [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
     EmitNavigationState();
     return true;
+  }
+
+  void SetRestoredUrl(const std::string& url) {
+    current_url_ = url;
+    if (web_view_ != nil && !current_url_.empty()) {
+      NSString* url_string = [NSString stringWithUTF8String:current_url_.c_str()];
+      NSURL* ns_url = [NSURL URLWithString:url_string];
+      if (ns_url != nil) {
+        [web_view_ loadRequest:[NSURLRequest requestWithURL:ns_url]];
+      }
+    }
   }
 
   std::string CurrentUrl() const {
@@ -310,6 +319,8 @@ class Tab::Impl {
     return web_view_;
   }
 
+  NSView* LoadedNativeView() const { return web_view_; }
+
  private:
   void EnsureLoaded() {
     if (web_view_ != nil) {
@@ -363,6 +374,10 @@ bool Tab::LoadUrl(const std::string& text) {
   return impl_->LoadUrl(text);
 }
 
+void Tab::SetRestoredUrl(const std::string& url) {
+  impl_->SetRestoredUrl(url);
+}
+
 std::string Tab::CurrentUrl() const {
   return impl_->CurrentUrl();
 }
@@ -397,6 +412,10 @@ void Tab::SetPageColorCallback(PageColorCallback callback) {
 
 NSView* Tab::NativeView() const {
   return const_cast<Impl*>(impl_.get())->NativeView();
+}
+
+NSView* Tab::LoadedNativeView() const {
+  return impl_->LoadedNativeView();
 }
 
 }  // namespace briviba

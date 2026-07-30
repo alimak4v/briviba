@@ -38,13 +38,14 @@ The project experiments with browser chrome that feels native to macOS without c
 
 - Native macOS window built with AppKit and `WKWebView`.
 - Glass-style left sidebar with favicon tabs, close-on-hover controls, and scrollable overflow.
-- Warm tab switching: inactive `WKWebView` instances stay alive instead of being destroyed on every tab change.
-- Per-top-level-site WebKit data stores in normal browsing mode.
+- Lazy session restore: only the active restored tab loads at startup.
+- Warm tab switching: loaded inactive `WKWebView` instances stay alive instead of being destroyed on every tab change.
+- Persistent normal-mode WebKit storage for logins, cookies, and site data between sessions.
 - Secure Mode with non-persistent WebKit storage.
 - Settings window with persisted privacy and default search engine options.
 - Default search engines: DuckDuckGo, Google, Bing, and Yandex.
 - Context menu on sidebar tabs for Back, Forward, Reload, Edit Address, and Close Tab.
-- SQLite-backed settings, history, bookmarks, downloads, and site-container mapping.
+- SQLite-backed settings, history, bookmarks, and downloads.
 - Safari-like WebKit user agent for better site compatibility.
 
 ## Build

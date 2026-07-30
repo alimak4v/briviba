@@ -100,11 +100,15 @@ class TabManager::Impl {
     active_index_ = 0;
 
     for (const std::string& url : restore_urls) {
-      CreateTab();
-      LoadUrl(url);
+      const std::string top_level_site = TopLevelSiteFromInput(url, search_engine_id_);
+      auto tab = CreateTabForTopLevelSite(top_level_site);
+      tab->SetRestoredUrl(url);
+      tabs_.push_back(ManagedTab{std::move(tab), top_level_site, url, std::string(),
+                                 std::string(), browsing_mode_});
     }
 
-    SelectTab(std::min(active_index, tabs_.empty() ? size_t{0} : tabs_.size() - 1));
+    active_index_ = std::min(active_index, tabs_.size() - 1);
+    MountActiveTab();
     EmitTabState();
     return true;
   }
@@ -312,6 +316,13 @@ class TabManager::Impl {
     }
 
     for (size_t index = 0; index < tabs_.size(); ++index) {
+      if (index != active_index_) {
+        NSView* existing_view = tabs_[index].tab->LoadedNativeView();
+        if (existing_view != nil) {
+          [existing_view setHidden:YES];
+        }
+        continue;
+      }
       NSView* tab_view = tabs_[index].tab->NativeView();
       if ([tab_view superview] != container_view_) {
         [container_view_ addSubview:tab_view];
@@ -330,8 +341,10 @@ class TabManager::Impl {
     if (index >= tabs_.size()) {
       return;
     }
-    NSView* tab_view = tabs_[index].tab->NativeView();
-    [tab_view removeFromSuperview];
+    NSView* tab_view = tabs_[index].tab->LoadedNativeView();
+    if (tab_view != nil) {
+      [tab_view removeFromSuperview];
+    }
   }
 
   void EmitDefaultPageColor() {
