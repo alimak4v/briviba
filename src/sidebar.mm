@@ -344,15 +344,27 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 
   NSView* content_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
   [content_view setWantsLayer:YES];
-  [[content_view layer] setCornerRadius:12.0];
   [[content_view layer] setMasksToBounds:NO];
-  [[content_view layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.94] CGColor]];
-  [[content_view layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.10] CGColor]];
-  [[content_view layer] setBorderWidth:0.8];
+  [[content_view layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
   [[content_view layer] setShadowColor:[[NSColor blackColor] CGColor]];
   [[content_view layer] setShadowOpacity:0.14F];
   [[content_view layer] setShadowRadius:16.0];
   [[content_view layer] setShadowOffset:CGSizeMake(0.0, -5.0)];
+  CGPathRef shadow_path =
+      CGPathCreateWithRoundedRect(CGRectMake(0.0, 0.0, panel_width, panel_height), 12.0, 12.0,
+                                  nullptr);
+  [[content_view layer] setShadowPath:shadow_path];
+  CGPathRelease(shadow_path);
+
+  NSView* card_view = [[NSView alloc] initWithFrame:NSZeroRect];
+  [card_view setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [card_view setWantsLayer:YES];
+  [[card_view layer] setCornerRadius:12.0];
+  [[card_view layer] setMasksToBounds:YES];
+  [[card_view layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.94] CGColor]];
+  [[card_view layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.10] CGColor]];
+  [[card_view layer] setBorderWidth:0.8];
+  [content_view addSubview:card_view];
 
   NSTextField* title_label = [NSTextField wrappingLabelWithString:title];
   [title_label setFont:title_font];
@@ -360,21 +372,25 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
   [title_label setMaximumNumberOfLines:2];
   [title_label setLineBreakMode:NSLineBreakByTruncatingTail];
   [title_label setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [content_view addSubview:title_label];
+  [card_view addSubview:title_label];
 
   NSTextField* domain_label = [NSTextField labelWithString:domain];
   [domain_label setFont:domain_font];
   [domain_label setTextColor:[NSColor colorWithWhite:0.38 alpha:0.90]];
   [domain_label setLineBreakMode:NSLineBreakByTruncatingMiddle];
   [domain_label setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [content_view addSubview:domain_label];
+  [card_view addSubview:domain_label];
 
   [NSLayoutConstraint activateConstraints:@[
-    [[title_label leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor]
+    [[card_view leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor]],
+    [[card_view topAnchor] constraintEqualToAnchor:[content_view topAnchor]],
+    [[card_view trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor]],
+    [[card_view bottomAnchor] constraintEqualToAnchor:[content_view bottomAnchor]],
+    [[title_label leadingAnchor] constraintEqualToAnchor:[card_view leadingAnchor]
                                                 constant:horizontal_padding],
-    [[title_label topAnchor] constraintEqualToAnchor:[content_view topAnchor]
+    [[title_label topAnchor] constraintEqualToAnchor:[card_view topAnchor]
                                             constant:vertical_padding],
-    [[title_label trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor]
+    [[title_label trailingAnchor] constraintEqualToAnchor:[card_view trailingAnchor]
                                                  constant:-horizontal_padding],
     [[domain_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
     [[domain_label topAnchor] constraintEqualToAnchor:[title_label bottomAnchor] constant:4.0],
