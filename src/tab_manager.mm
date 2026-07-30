@@ -145,6 +145,7 @@ class TabManager::Impl {
     if (index >= tabs_.size() || index == active_index_) {
       return;
     }
+    tabs_[active_index_].tab->ExitFullscreen();
     active_index_ = index;
     MountActiveTab();
     EmitTabState();
@@ -156,6 +157,9 @@ class TabManager::Impl {
     }
 
     const bool closing_active_tab = index == active_index_;
+    if (closing_active_tab) {
+      tabs_[index].tab->ExitFullscreen();
+    }
     RemoveTabView(index);
     tabs_.erase(tabs_.begin() + static_cast<std::vector<ManagedTab>::difference_type>(index));
     if (active_index_ > index) {

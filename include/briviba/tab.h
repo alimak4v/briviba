@@ -44,6 +44,7 @@ class Tab {
   void MarkPageActivity();
   void ResetPageActivity();
   void Unload();
+  void ExitFullscreen();
   void GoBack();
   void GoForward();
   void Reload();

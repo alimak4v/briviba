@@ -477,6 +477,33 @@ class Tab::Impl {
     web_view_ = nil;
   }
 
+  void ExitFullscreen() {
+    if (web_view_ == nil) {
+      return;
+    }
+
+    NSString* script =
+        @"(() => {"
+         "try {"
+         "  const doc = document;"
+         "  const exitDocFullscreen = doc.exitFullscreen || doc.webkitExitFullscreen;"
+         "  if (doc.fullscreenElement && exitDocFullscreen) exitDocFullscreen.call(doc);"
+         "  if (doc.webkitFullscreenElement && exitDocFullscreen) exitDocFullscreen.call(doc);"
+         "  for (const video of Array.from(doc.querySelectorAll('video'))) {"
+         "    try {"
+         "      if (video.webkitPresentationMode === 'fullscreen' && video.webkitExitFullscreen) {"
+         "        video.webkitExitFullscreen();"
+         "      }"
+         "      if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {"
+         "        video.webkitExitFullscreen();"
+         "      }"
+         "    } catch (_) {}"
+         "  }"
+         "} catch (_) {}"
+         "})();";
+    [web_view_ evaluateJavaScript:script completionHandler:nil];
+  }
+
   void GoBack() {
     EnsureLoaded();
     if ([web_view_ canGoBack]) {
@@ -635,6 +662,10 @@ void Tab::ResetPageActivity() {
 
 void Tab::Unload() {
   impl_->Unload();
+}
+
+void Tab::ExitFullscreen() {
+  impl_->ExitFullscreen();
 }
 
 void Tab::GoBack() {
