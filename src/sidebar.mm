@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -246,6 +247,9 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 
 @interface BrivibaSidebarTabItemView : NSView
 @property(nonatomic, strong) NSButton* closeButton;
+@property(nonatomic, copy) NSString* hoverTitle;
+@property(nonatomic, copy) NSString* hoverDomain;
+@property(nonatomic, strong) NSImage* hoverImage;
 @property(nonatomic) BOOL closeEnabled;
 @property(nonatomic, weak) id actionTarget;
 @property(nonatomic) NSInteger tabIndex;
@@ -253,6 +257,11 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 
 @implementation BrivibaSidebarTabItemView {
   NSTrackingArea* tracking_area_;
+  NSPanel* hover_panel_;
+}
+
+- (void)dealloc {
+  [self hideHoverPreview];
 }
 
 - (void)updateTrackingAreas {
@@ -278,14 +287,17 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
 - (void)mouseEntered:(NSEvent*)event {
   (void)event;
   [self updateCloseButtonVisibility:YES];
+  [self showHoverPreview];
 }
 
 - (void)mouseExited:(NSEvent*)event {
   (void)event;
   [self updateCloseButtonVisibility:NO];
+  [self hideHoverPreview];
 }
 
 - (void)rightMouseDown:(NSEvent*)event {
+  [self hideHoverPreview];
   [NSMenu popUpContextMenu:BrivibaSidebarTabContextMenu(_tabIndex, _closeEnabled, _actionTarget)
                  withEvent:event
                    forView:self];
@@ -296,6 +308,129 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
     return;
   }
   [_closeButton setHidden:!(_closeEnabled && visible)];
+}
+
+- (void)showHoverPreview {
+  if (hover_panel_ != nil || [self window] == nil) {
+    return;
+  }
+
+  NSString* title = [_hoverTitle stringByTrimmingCharactersInSet:
+                                  [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  NSString* domain = [_hoverDomain stringByTrimmingCharactersInSet:
+                                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if ([title length] == 0) {
+    title = [domain length] == 0 ? @"New Tab" : domain;
+  }
+  if ([domain length] == 0) {
+    domain = title;
+  }
+
+  constexpr CGFloat panel_width = 320.0;
+  constexpr CGFloat panel_min_height = 86.0;
+  constexpr CGFloat horizontal_padding = 18.0;
+  constexpr CGFloat vertical_padding = 15.0;
+  constexpr CGFloat icon_size = 30.0;
+  constexpr CGFloat text_gap = 12.0;
+  const CGFloat text_width = panel_width - horizontal_padding * 2.0 - icon_size - text_gap;
+
+  NSFont* title_font = [NSFont systemFontOfSize:16.0 weight:NSFontWeightSemibold];
+  NSFont* domain_font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightRegular];
+  NSDictionary* title_attributes = @{NSFontAttributeName : title_font};
+  NSRect title_bounds =
+      [title boundingRectWithSize:NSMakeSize(text_width, 48.0)
+                          options:NSStringDrawingUsesLineFragmentOrigin
+                       attributes:title_attributes];
+  const CGFloat title_height = std::min<CGFloat>(48.0, std::ceil(NSHeight(title_bounds)));
+  const CGFloat panel_height =
+      std::max(panel_min_height, vertical_padding * 2.0 + title_height + 22.0);
+
+  NSView* content_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, panel_width, panel_height)];
+  [content_view setWantsLayer:YES];
+  [[content_view layer] setCornerRadius:14.0];
+  [[content_view layer] setMasksToBounds:NO];
+  [[content_view layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.94] CGColor]];
+  [[content_view layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:0.10] CGColor]];
+  [[content_view layer] setBorderWidth:0.8];
+  [[content_view layer] setShadowColor:[[NSColor blackColor] CGColor]];
+  [[content_view layer] setShadowOpacity:0.18F];
+  [[content_view layer] setShadowRadius:22.0];
+  [[content_view layer] setShadowOffset:CGSizeMake(0.0, -8.0)];
+
+  NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
+  [image_view setImage:_hoverImage];
+  [image_view setImageScaling:NSImageScaleProportionallyUpOrDown];
+  [image_view setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [content_view addSubview:image_view];
+
+  NSTextField* title_label = [NSTextField wrappingLabelWithString:title];
+  [title_label setFont:title_font];
+  [title_label setTextColor:[NSColor colorWithWhite:0.08 alpha:0.92]];
+  [title_label setMaximumNumberOfLines:2];
+  [title_label setLineBreakMode:NSLineBreakByTruncatingTail];
+  [title_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [content_view addSubview:title_label];
+
+  NSTextField* domain_label = [NSTextField labelWithString:domain];
+  [domain_label setFont:domain_font];
+  [domain_label setTextColor:[NSColor colorWithWhite:0.38 alpha:0.90]];
+  [domain_label setLineBreakMode:NSLineBreakByTruncatingMiddle];
+  [domain_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [content_view addSubview:domain_label];
+
+  [NSLayoutConstraint activateConstraints:@[
+    [[image_view leadingAnchor] constraintEqualToAnchor:[content_view leadingAnchor]
+                                               constant:horizontal_padding],
+    [[image_view topAnchor] constraintEqualToAnchor:[content_view topAnchor]
+                                           constant:vertical_padding + 2.0],
+    [[image_view widthAnchor] constraintEqualToConstant:icon_size],
+    [[image_view heightAnchor] constraintEqualToConstant:icon_size],
+    [[title_label leadingAnchor] constraintEqualToAnchor:[image_view trailingAnchor]
+                                                constant:text_gap],
+    [[title_label topAnchor] constraintEqualToAnchor:[content_view topAnchor]
+                                            constant:vertical_padding],
+    [[title_label trailingAnchor] constraintEqualToAnchor:[content_view trailingAnchor]
+                                                 constant:-horizontal_padding],
+    [[domain_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+    [[domain_label topAnchor] constraintEqualToAnchor:[title_label bottomAnchor] constant:4.0],
+    [[domain_label trailingAnchor] constraintEqualToAnchor:[title_label trailingAnchor]],
+  ]];
+
+  NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0.0, 0.0, panel_width, panel_height)
+                                             styleMask:NSWindowStyleMaskBorderless |
+                                                       NSWindowStyleMaskNonactivatingPanel
+                                               backing:NSBackingStoreBuffered
+                                                 defer:NO];
+  [panel setOpaque:NO];
+  [panel setBackgroundColor:[NSColor clearColor]];
+  [panel setHasShadow:NO];
+  [panel setIgnoresMouseEvents:YES];
+  [panel setLevel:NSFloatingWindowLevel];
+  [panel setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+                               NSWindowCollectionBehaviorFullScreenAuxiliary];
+  [panel setContentView:content_view];
+
+  NSRect item_rect_in_window = [self convertRect:[self bounds] toView:nil];
+  NSRect item_rect_on_screen = [[self window] convertRectToScreen:item_rect_in_window];
+  NSScreen* screen = [[self window] screen] == nil ? [NSScreen mainScreen] : [[self window] screen];
+  NSRect visible_frame = [screen visibleFrame];
+  CGFloat x = NSMaxX(item_rect_on_screen) + 14.0;
+  CGFloat y = NSMidY(item_rect_on_screen) - panel_height / 2.0;
+  y = std::max(NSMinY(visible_frame) + 8.0,
+               std::min(y, NSMaxY(visible_frame) - panel_height - 8.0));
+  [panel setFrame:NSMakeRect(x, y, panel_width, panel_height) display:NO];
+  [[self window] addChildWindow:panel ordered:NSWindowAbove];
+  [panel orderFront:nil];
+  hover_panel_ = panel;
+}
+
+- (void)hideHoverPreview {
+  if (hover_panel_ == nil) {
+    return;
+  }
+  [[self window] removeChildWindow:hover_panel_];
+  [hover_panel_ orderOut:nil];
+  hover_panel_ = nil;
 }
 
 @end
@@ -570,7 +705,7 @@ NSButton* SiteTabButton(size_t index, const Sidebar::TabState& tab, bool active,
   }
   [button setImagePosition:NSImageOnly];
   [button setImageScaling:NSImageScaleProportionallyDown];
-  [button setToolTip:tab.title.empty() ? HostFromUrl(tab.url) : StringFromStdString(tab.title)];
+  [button setToolTip:nil];
   if (!active) {
     [[button layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
     [[button layer] setBorderWidth:0.0];
@@ -610,6 +745,11 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
   [item setTabIndex:static_cast<NSInteger>(index)];
   [item setTranslatesAutoresizingMaskIntoConstraints:NO];
   NSButton* tab_button = SiteTabButton(index, tab, active, target);
+  NSString* domain = HostFromUrl(tab.url);
+  NSString* title = tab.title.empty() ? domain : StringFromStdString(tab.title);
+  [item setHoverTitle:title];
+  [item setHoverDomain:domain];
+  [item setHoverImage:[tab_button image]];
   [tab_button setMenu:BrivibaSidebarTabContextMenu(static_cast<NSInteger>(index),
                                                   close_enabled ? YES : NO, target)];
   [item addSubview:tab_button];
