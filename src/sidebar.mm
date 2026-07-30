@@ -10,7 +10,6 @@
 #include <cstddef>
 #include <cmath>
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -543,54 +542,6 @@ NSMutableDictionary<NSString*, NSHashTable<NSButton*>*>* PendingFaviconButtons()
   return pending_buttons;
 }
 
-std::optional<NSColor*> AverageVisibleColor(NSImage* image) {
-  CGImageRef cg_image = [image CGImageForProposedRect:nil context:nil hints:nil];
-  if (cg_image == nullptr) {
-    return std::nullopt;
-  }
-
-  constexpr size_t kWidth = 12;
-  constexpr size_t kHeight = 12;
-  constexpr size_t kBytesPerPixel = 4;
-  unsigned char pixels[kWidth * kHeight * kBytesPerPixel] = {};
-  CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
-  const CGBitmapInfo bitmap_info =
-      static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | kCGBitmapByteOrder32Big;
-  CGContextRef context =
-      CGBitmapContextCreate(pixels, kWidth, kHeight, 8, kWidth * kBytesPerPixel, color_space,
-                            bitmap_info);
-  CGColorSpaceRelease(color_space);
-  if (context == nullptr) {
-    return std::nullopt;
-  }
-
-  CGContextDrawImage(context, CGRectMake(0.0, 0.0, kWidth, kHeight), cg_image);
-  CGContextRelease(context);
-
-  double red = 0.0;
-  double green = 0.0;
-  double blue = 0.0;
-  double alpha = 0.0;
-  for (size_t offset = 0; offset < kWidth * kHeight * kBytesPerPixel; offset += kBytesPerPixel) {
-    const double pixel_alpha = static_cast<double>(pixels[offset + 3]) / 255.0;
-    if (pixel_alpha < 0.10) {
-      continue;
-    }
-    red += static_cast<double>(pixels[offset]) * pixel_alpha;
-    green += static_cast<double>(pixels[offset + 1]) * pixel_alpha;
-    blue += static_cast<double>(pixels[offset + 2]) * pixel_alpha;
-    alpha += pixel_alpha;
-  }
-  if (alpha <= 0.0) {
-    return std::nullopt;
-  }
-
-  return [NSColor colorWithRed:std::clamp((red / alpha) / 255.0, 0.0, 1.0)
-                         green:std::clamp((green / alpha) / 255.0, 0.0, 1.0)
-                          blue:std::clamp((blue / alpha) / 255.0, 0.0, 1.0)
-                         alpha:1.0];
-}
-
 NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
   NSString* rendered_key = [@"rendered:" stringByAppendingString:cache_key];
   NSImage* cached_image = [RenderedFaviconMemoryCache() objectForKey:rendered_key];
@@ -612,17 +563,11 @@ NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
   [image lockFocus];
   [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
   if (low_quality) {
-    NSColor* background_color = [NSColor colorWithWhite:1.0 alpha:0.90];
-    std::optional<NSColor*> average_color = AverageVisibleColor(source_image);
-    if (average_color.has_value()) {
-      background_color = [average_color.value() blendedColorWithFraction:0.58
-                                                                  ofColor:[NSColor whiteColor]];
-    }
     NSBezierPath* background =
         [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.0, 0.0, kCanvasSize, kCanvasSize)
                                         xRadius:9.0
                                         yRadius:9.0];
-    [background_color setFill];
+    [[NSColor colorWithWhite:1.0 alpha:0.94] setFill];
     [background fill];
     [[NSColor colorWithWhite:1.0 alpha:0.62] setStroke];
     [background setLineWidth:1.0];
