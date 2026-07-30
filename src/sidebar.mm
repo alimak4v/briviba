@@ -563,7 +563,6 @@ NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
 
   constexpr CGFloat kCanvasSize = 30.0;
   constexpr CGFloat kNormalIconSize = 28.0;
-  constexpr CGFloat kSmallIconSize = 17.0;
   NSSize pixel_size = [source_image size];
   CGImageRef cg_image = [source_image CGImageForProposedRect:nil context:nil hints:nil];
   if (cg_image != nullptr) {
@@ -579,14 +578,12 @@ NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
         [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.0, 0.0, kCanvasSize, kCanvasSize)
                                         xRadius:9.0
                                         yRadius:9.0];
-    [[NSColor colorWithWhite:1.0 alpha:0.94] setFill];
+    [[NSColor colorWithWhite:1.0 alpha:1.0] setFill];
     [background fill];
-    [[NSColor colorWithWhite:1.0 alpha:0.62] setStroke];
-    [background setLineWidth:1.0];
-    [background stroke];
 
-    const CGFloat origin = (kCanvasSize - kSmallIconSize) / 2.0;
-    [source_image drawInRect:NSMakeRect(origin, origin, kSmallIconSize, kSmallIconSize)
+    const CGFloat compact_icon_size = 15.0;
+    const CGFloat origin = (kCanvasSize - compact_icon_size) / 2.0;
+    [source_image drawInRect:NSMakeRect(origin, origin, compact_icon_size, compact_icon_size)
                     fromRect:NSZeroRect
                    operation:NSCompositingOperationSourceOver
                     fraction:1.0];
@@ -620,9 +617,11 @@ NSImage* CachedFavicon(NSString* cache_key) {
 NSURL* FaviconSourceUrl(const Sidebar::TabState& tab) {
   if (!tab.favicon_url.empty()) {
     NSURL* explicit_url = [NSURL URLWithString:StringFromStdString(tab.favicon_url)];
-    NSString* extension = [[[explicit_url pathExtension] lowercaseString] copy];
-    if (explicit_url != nil && ![extension isEqualToString:@"svg"]) {
-      return explicit_url;
+    if (explicit_url != nil) {
+      NSString* extension = [explicit_url.pathExtension lowercaseString];
+      if (![extension isEqualToString:@"svg"]) {
+        return explicit_url;
+      }
     }
   }
 
