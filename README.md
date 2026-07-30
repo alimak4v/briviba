@@ -38,6 +38,7 @@ The project experiments with browser chrome that feels native to macOS without c
 
 - Native macOS window built with AppKit and `WKWebView`.
 - Glass-style left sidebar with favicon tabs, close-on-hover controls, and scrollable overflow.
+- Drag files onto the sidebar plus button to open them in new tabs.
 - Memory and disk favicon cache for faster tab rendering.
 - Lazy session restore: only the active restored tab loads at startup.
 - Warm tab switching: loaded inactive `WKWebView` instances stay alive instead of being destroyed on every tab change.

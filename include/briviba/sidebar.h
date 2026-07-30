@@ -25,6 +25,7 @@ class Sidebar {
   using SelectTabAction = std::function<void(size_t index)>;
   using CloseTabAction = std::function<void(size_t index)>;
   using TabAction = std::function<void(size_t index)>;
+  using OpenFilesAction = std::function<void(const std::vector<std::string>& file_urls)>;
 
   Sidebar();
   ~Sidebar();
@@ -33,6 +34,7 @@ class Sidebar {
   Sidebar& operator=(const Sidebar&) = delete;
 
   void SetNewTabAction(Action action);
+  void SetOpenFilesAction(OpenFilesAction action);
   void SetSettingsAction(Action action);
   void SetSelectTabAction(SelectTabAction action);
   void SetCloseTabAction(CloseTabAction action);

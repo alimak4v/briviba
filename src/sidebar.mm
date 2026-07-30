@@ -15,6 +15,7 @@
 @interface BrivibaSidebarActionBridge : NSObject {
  @public
   briviba::Sidebar::Action new_tab_action;
+  briviba::Sidebar::OpenFilesAction open_files_action;
   briviba::Sidebar::Action settings_action;
   briviba::Sidebar::SelectTabAction select_tab_action;
   briviba::Sidebar::CloseTabAction close_tab_action;
@@ -107,6 +108,75 @@
     return;
   }
   clear_tab_caches_action(static_cast<size_t>([sender tag]));
+}
+
+@end
+
+@interface BrivibaDropButton : NSButton {
+ @public
+  briviba::Sidebar::OpenFilesAction open_files_action;
+}
+@end
+
+@implementation BrivibaDropButton
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self != nil) {
+    [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
+  }
+  return self;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  if (!open_files_action || [self fileUrlsFromDraggingInfo:sender].count == 0) {
+    return NSDragOperationNone;
+  }
+  [[self layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.82] CGColor]];
+  return NSDragOperationCopy;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+  (void)sender;
+  [[self layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  [[self layer] setBackgroundColor:[[NSColor clearColor] CGColor]];
+  NSArray<NSURL*>* file_urls = [self fileUrlsFromDraggingInfo:sender];
+  if (file_urls.count == 0 || !open_files_action) {
+    return NO;
+  }
+
+  std::vector<std::string> urls;
+  urls.reserve(file_urls.count);
+  for (NSURL* url in file_urls) {
+    if (![url isFileURL]) {
+      continue;
+    }
+    NSString* absolute_string = [url absoluteString];
+    const char* utf8 = [absolute_string UTF8String];
+    if (utf8 != nullptr) {
+      urls.emplace_back(utf8);
+    }
+  }
+  if (urls.empty()) {
+    return NO;
+  }
+  open_files_action(urls);
+  return YES;
+}
+
+- (NSArray<NSURL*>*)fileUrlsFromDraggingInfo:(id<NSDraggingInfo>)sender {
+  NSPasteboard* pasteboard = [sender draggingPasteboard];
+  NSArray<NSURL*>* urls =
+      [pasteboard readObjectsForClasses:@[ [NSURL class] ]
+                                options:@{ NSPasteboardURLReadingFileURLsOnlyKey : @YES }];
+  if (urls.count > 0) {
+    return urls;
+  }
+
+  return @[];
 }
 
 @end
@@ -444,7 +514,8 @@ NSImage* SiteTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
 NSButton* IconButton(NSString* symbol_name, NSString* accessibility_label) {
   NSImage* image = [NSImage imageWithSystemSymbolName:symbol_name
                              accessibilityDescription:accessibility_label];
-  NSButton* button = [NSButton buttonWithImage:image target:nil action:nil];
+  NSButton* button = [[BrivibaDropButton alloc] initWithFrame:NSZeroRect];
+  [button setImage:image];
   [button setBordered:NO];
   [button setBezelStyle:NSBezelStyleRegularSquare];
   [button setImagePosition:NSImageOnly];
@@ -696,6 +767,12 @@ class Sidebar::Impl {
 
   void SetNewTabAction(Action action) { bridge_->new_tab_action = std::move(action); }
 
+  void SetOpenFilesAction(OpenFilesAction action) {
+    bridge_->open_files_action = std::move(action);
+    BrivibaDropButton* drop_button = (BrivibaDropButton*)new_tab_button_;
+    drop_button->open_files_action = bridge_->open_files_action;
+  }
+
   void SetSettingsAction(Action action) { bridge_->settings_action = std::move(action); }
 
   void SetSelectTabAction(SelectTabAction action) { bridge_->select_tab_action = std::move(action); }
@@ -802,6 +879,10 @@ Sidebar::~Sidebar() = default;
 
 void Sidebar::SetNewTabAction(Action action) {
   impl_->SetNewTabAction(std::move(action));
+}
+
+void Sidebar::SetOpenFilesAction(OpenFilesAction action) {
+  impl_->SetOpenFilesAction(std::move(action));
 }
 
 void Sidebar::SetSettingsAction(Action action) {

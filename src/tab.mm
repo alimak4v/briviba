@@ -242,6 +242,12 @@ class Tab::Impl {
     }
 
     current_url_ = url_text;
+    if ([url isFileURL]) {
+      NSURL* read_access_url = [url URLByDeletingLastPathComponent];
+      [web_view_ loadFileURL:url allowingReadAccessToURL:read_access_url];
+      EmitNavigationState();
+      return true;
+    }
     [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
     EmitNavigationState();
     return true;
@@ -344,7 +350,11 @@ class Tab::Impl {
       NSString* url_string = [NSString stringWithUTF8String:current_url_.c_str()];
       NSURL* url = [NSURL URLWithString:url_string];
       if (url != nil) {
-        [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
+        if ([url isFileURL]) {
+          [web_view_ loadFileURL:url allowingReadAccessToURL:[url URLByDeletingLastPathComponent]];
+        } else {
+          [web_view_ loadRequest:[NSURLRequest requestWithURL:url]];
+        }
       }
     }
   }

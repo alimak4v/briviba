@@ -288,6 +288,9 @@ class BrowserWindow::Impl {
     [[chrome_background_ layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:1.0] CGColor]];
 
     sidebar_.SetNewTabAction([this] { CreateNewTab(); });
+    sidebar_.SetOpenFilesAction([this](const std::vector<std::string>& file_urls) {
+      OpenFileUrls(file_urls);
+    });
     sidebar_.SetSettingsAction([this] { ShowSettingsWindow(); });
     sidebar_.SetSelectTabAction([this](size_t index) { tab_manager_.SelectTab(index); });
     sidebar_.SetCloseTabAction([this](size_t index) { tab_manager_.CloseTab(index); });
@@ -378,6 +381,16 @@ class BrowserWindow::Impl {
   void CreateNewTab() {
     tab_manager_.CreateTab();
     tab_manager_.LoadUrl(DefaultStartUrl());
+  }
+
+  void OpenFileUrls(const std::vector<std::string>& file_urls) {
+    for (const std::string& file_url : file_urls) {
+      if (file_url.empty()) {
+        continue;
+      }
+      tab_manager_.CreateTab();
+      tab_manager_.LoadUrl(file_url);
+    }
   }
 
   void LoadInitialSession() {
