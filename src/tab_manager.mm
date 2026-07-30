@@ -17,7 +17,6 @@ namespace briviba {
 namespace {
 
 constexpr size_t kLoadedTabSoftLimit = 4;
-constexpr size_t kLoadedTabHardLimit = 10;
 
 std::string StringFromNSString(NSString* value) {
   const char* utf8 = [value UTF8String];
@@ -387,14 +386,13 @@ class TabManager::Impl {
       }
     }
     while (loaded_count > kLoadedTabSoftLimit) {
-      const bool memory_pressure_limit_reached = loaded_count > kLoadedTabHardLimit;
       size_t unload_index = tabs_.size();
       size_t oldest_sequence = SIZE_MAX;
       for (size_t index = 0; index < tabs_.size(); ++index) {
         if (index == active_index_ || tabs_[index].tab->LoadedNativeView() == nil) {
           continue;
         }
-        if (!memory_pressure_limit_reached && tabs_[index].tab->ShouldStayLoaded()) {
+        if (tabs_[index].tab->ShouldStayLoaded()) {
           continue;
         }
         if (tabs_[index].last_active_sequence < oldest_sequence) {

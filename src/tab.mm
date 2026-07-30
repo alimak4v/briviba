@@ -57,6 +57,7 @@
 
 @interface BrivibaNavigationDelegate : NSObject <WKNavigationDelegate, WKUIDelegate> {
  @public
+  briviba::Tab* tab;
   briviba::Tab::NavigationStateCallback navigation_state_callback;
   briviba::Tab::PageColorCallback page_color_callback;
   briviba::Tab::OpenUrlInNewTabCallback open_url_in_new_tab_callback;
@@ -91,11 +92,17 @@
 
 - (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation {
   (void)navigation;
+  if (tab != nullptr) {
+    tab->ResetPageActivity();
+  }
   [self emitNavigationStateForWebView:webView];
 }
 
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
   (void)navigation;
+  if (tab != nullptr) {
+    tab->ResetPageActivity();
+  }
   [self emitNavigationStateForWebView:webView];
   [self emitFaviconNavigationStateForWebView:webView];
   [self emitPageColorForWebView:webView];
@@ -455,10 +462,15 @@ class Tab::Impl {
 
   void MarkPageActivity() { last_page_activity_seconds_ = MonotonicSeconds(); }
 
+  void ResetPageActivity() { last_page_activity_seconds_ = 0.0; }
+
   void Unload() {
     current_url_ = CurrentUrl();
     [web_view_ setNavigationDelegate:nil];
     [web_view_ setUIDelegate:nil];
+    if (navigation_delegate_ != nil) {
+      navigation_delegate_->tab = nullptr;
+    }
     DetachActivityHandler();
     [web_view_ removeFromSuperview];
     navigation_delegate_ = nil;
@@ -540,9 +552,9 @@ class Tab::Impl {
       [configuration setWebsiteDataStore:website_data_store_];
     }
     web_view_ = [[BrivibaWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
-    MarkPageActivity();
     [web_view_ setCustomUserAgent:SafariLikeUserAgent()];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
+    navigation_delegate_->tab = owner_;
     navigation_delegate_->download_manager = &download_manager_;
     navigation_delegate_->navigation_state_callback = navigation_state_callback_;
     navigation_delegate_->page_color_callback = page_color_callback_;
@@ -615,6 +627,10 @@ bool Tab::ShouldStayLoaded() const {
 
 void Tab::MarkPageActivity() {
   impl_->MarkPageActivity();
+}
+
+void Tab::ResetPageActivity() {
+  impl_->ResetPageActivity();
 }
 
 void Tab::Unload() {

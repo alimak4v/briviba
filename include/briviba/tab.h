@@ -42,6 +42,7 @@ class Tab {
   std::string CurrentUrl() const;
   bool ShouldStayLoaded() const;
   void MarkPageActivity();
+  void ResetPageActivity();
   void Unload();
   void GoBack();
   void GoForward();
