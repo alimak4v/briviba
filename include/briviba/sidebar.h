@@ -40,6 +40,8 @@ class Sidebar {
   void SetForwardTabAction(TabAction action);
   void SetReloadTabAction(TabAction action);
   void SetEditTabAddressAction(TabAction action);
+  void SetClearTabCookiesAction(TabAction action);
+  void SetClearTabCachesAction(TabAction action);
   void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
   void SetFullscreenAppearance(bool fullscreen);
 

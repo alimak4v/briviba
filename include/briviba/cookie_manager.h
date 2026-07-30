@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #ifdef __OBJC__
 @class WKWebsiteDataStore;
@@ -14,6 +15,16 @@ namespace briviba {
 
 class CookieManager {
  public:
+  struct CookieInfo {
+    std::string name;
+    std::string value;
+    std::string domain;
+    std::string path;
+    std::string expires;
+    bool secure = false;
+    bool http_only = false;
+  };
+
   explicit CookieManager(std::filesystem::path database_path);
   ~CookieManager();
 
@@ -22,6 +33,11 @@ class CookieManager {
 
   static std::filesystem::path DefaultDatabasePath();
   void WhenReady(std::function<void()> callback);
+  void ClearAllCookiesAndSiteState(std::function<void()> callback);
+  void ClearAllCaches(std::function<void()> callback);
+  void ClearCookiesAndSiteStateForDomain(const std::string& domain, std::function<void()> callback);
+  void ClearCachesForDomain(const std::string& domain, std::function<void()> callback);
+  void ListCookies(std::function<void(std::vector<CookieInfo>)> callback);
 
 #ifdef __OBJC__
   WKWebsiteDataStore* NormalWebsiteDataStore() const;

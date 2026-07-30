@@ -162,6 +162,13 @@ class TabManager::Impl {
     return tab == nullptr ? std::string() : tab->CurrentUrl();
   }
 
+  std::string UrlForTab(size_t index) const {
+    if (index >= tabs_.size()) {
+      return std::string();
+    }
+    return tabs_[index].url.empty() ? tabs_[index].tab->CurrentUrl() : tabs_[index].url;
+  }
+
   void GoBack() {
     Tab* tab = ActiveTab();
     if (tab != nullptr) {
@@ -411,6 +418,10 @@ bool TabManager::LoadUrl(const std::string& text) {
 
 std::string TabManager::CurrentUrl() const {
   return impl_->CurrentUrl();
+}
+
+std::string TabManager::UrlForTab(size_t index) const {
+  return impl_->UrlForTab(index);
 }
 
 void TabManager::GoBack() {

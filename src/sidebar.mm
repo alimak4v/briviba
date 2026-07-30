@@ -1,10 +1,15 @@
 #include "briviba/sidebar.h"
 
+#include "briviba/app_paths.h"
+
 #import <AppKit/AppKit.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
+#include <string>
 #include <utility>
 
 @interface BrivibaSidebarActionBridge : NSObject {
@@ -17,6 +22,8 @@
   briviba::Sidebar::TabAction forward_tab_action;
   briviba::Sidebar::TabAction reload_tab_action;
   briviba::Sidebar::TabAction edit_tab_address_action;
+  briviba::Sidebar::TabAction clear_tab_cookies_action;
+  briviba::Sidebar::TabAction clear_tab_caches_action;
 }
 - (void)newTab:(id)sender;
 - (void)openSettings:(id)sender;
@@ -26,6 +33,8 @@
 - (void)forwardTab:(id)sender;
 - (void)reloadTab:(id)sender;
 - (void)editTabAddress:(id)sender;
+- (void)clearTabCookies:(id)sender;
+- (void)clearTabCaches:(id)sender;
 @end
 
 @implementation BrivibaSidebarActionBridge
@@ -86,6 +95,20 @@
   edit_tab_address_action(static_cast<size_t>([sender tag]));
 }
 
+- (void)clearTabCookies:(id)sender {
+  if (!clear_tab_cookies_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  clear_tab_cookies_action(static_cast<size_t>([sender tag]));
+}
+
+- (void)clearTabCaches:(id)sender {
+  if (!clear_tab_caches_action || ![sender respondsToSelector:@selector(tag)]) {
+    return;
+  }
+  clear_tab_caches_action(static_cast<size_t>([sender tag]));
+}
+
 @end
 
 NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id target) {
@@ -120,6 +143,23 @@ NSMenu* BrivibaSidebarTabContextMenu(NSInteger tab_index, BOOL close_enabled, id
   [reload_item setTarget:target];
   [reload_item setTag:tab_index];
   [menu addItem:reload_item];
+
+  [menu addItem:[NSMenuItem separatorItem]];
+
+  NSMenuItem* clear_cookies_item =
+      [[NSMenuItem alloc] initWithTitle:@"Clear Cookies for Domain"
+                                 action:@selector(clearTabCookies:)
+                          keyEquivalent:@""];
+  [clear_cookies_item setTarget:target];
+  [clear_cookies_item setTag:tab_index];
+  [menu addItem:clear_cookies_item];
+
+  NSMenuItem* clear_caches_item = [[NSMenuItem alloc] initWithTitle:@"Clear Caches for Domain"
+                                                             action:@selector(clearTabCaches:)
+                                                      keyEquivalent:@""];
+  [clear_caches_item setTarget:target];
+  [clear_caches_item setTag:tab_index];
+  [menu addItem:clear_caches_item];
 
   if (close_enabled) {
     [menu addItem:[NSMenuItem separatorItem]];
@@ -215,6 +255,10 @@ NSString* StringFromStdString(const std::string& value) {
   return [NSString stringWithUTF8String:value.c_str()];
 }
 
+NSString* NSStringFromPath(const std::filesystem::path& path) {
+  return [NSString stringWithUTF8String:path.string().c_str()];
+}
+
 NSString* HostFromUrl(const std::string& url) {
   NSURL* parsed_url = [NSURL URLWithString:StringFromStdString(url)];
   NSString* host = [[parsed_url host] lowercaseString];
@@ -260,12 +304,95 @@ NSImage* FallbackTabImage(NSString* label, bool active, bool enabled) {
   return image;
 }
 
+NSString* SHA256Hex(NSString* value) {
+  NSData* data = [value dataUsingEncoding:NSUTF8StringEncoding];
+  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+  CC_SHA256([data bytes], static_cast<CC_LONG>([data length]), digest);
+
+  NSMutableString* result = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+  for (int index = 0; index < CC_SHA256_DIGEST_LENGTH; ++index) {
+    [result appendFormat:@"%02x", digest[index]];
+  }
+  return result;
+}
+
+std::filesystem::path FaviconCacheDirectory() {
+  return ApplicationSupportFile("FaviconCache");
+}
+
+NSURL* FaviconCacheFileUrl(NSString* favicon_url) {
+  std::filesystem::create_directories(FaviconCacheDirectory());
+  std::filesystem::path cache_path =
+      FaviconCacheDirectory() / (std::string([[SHA256Hex(favicon_url) stringByAppendingString:@".img"] UTF8String]));
+  return [NSURL fileURLWithPath:NSStringFromPath(cache_path)];
+}
+
+NSCache<NSString*, NSImage*>* FaviconMemoryCache() {
+  static NSCache<NSString*, NSImage*>* cache = [[NSCache alloc] init];
+  [cache setCountLimit:256];
+  return cache;
+}
+
+NSMutableSet<NSString*>* PendingFaviconFetches() {
+  static NSMutableSet<NSString*>* pending_fetches = [NSMutableSet set];
+  return pending_fetches;
+}
+
+NSImage* CachedFavicon(NSString* favicon_url) {
+  NSImage* cached_image = [FaviconMemoryCache() objectForKey:favicon_url];
+  if (cached_image != nil) {
+    [cached_image setSize:NSMakeSize(28.0, 28.0)];
+    return cached_image;
+  }
+
+  NSURL* file_url = FaviconCacheFileUrl(favicon_url);
+  NSImage* disk_image = [[NSImage alloc] initWithContentsOfURL:file_url];
+  if (disk_image != nil) {
+    [disk_image setSize:NSMakeSize(28.0, 28.0)];
+    [FaviconMemoryCache() setObject:disk_image forKey:favicon_url];
+  }
+  return disk_image;
+}
+
+void FetchFaviconIfNeeded(NSString* favicon_url, NSButton* button) {
+  if ([favicon_url length] == 0 || [PendingFaviconFetches() containsObject:favicon_url]) {
+    return;
+  }
+
+  NSURL* remote_url = [NSURL URLWithString:favicon_url];
+  if (remote_url == nil) {
+    return;
+  }
+
+  [PendingFaviconFetches() addObject:favicon_url];
+  NSURLSessionDataTask* task =
+      [[NSURLSession sharedSession] dataTaskWithURL:remote_url
+                                  completionHandler:^(NSData* data, NSURLResponse* response,
+                                                      NSError* error) {
+                                    (void)response;
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                      [PendingFaviconFetches() removeObject:favicon_url];
+                                      if (error != nil || data == nil || [data length] == 0) {
+                                        return;
+                                      }
+                                      NSImage* image = [[NSImage alloc] initWithData:data];
+                                      if (image == nil) {
+                                        return;
+                                      }
+                                      [data writeToURL:FaviconCacheFileUrl(favicon_url)
+                                           atomically:YES];
+                                      [image setSize:NSMakeSize(28.0, 28.0)];
+                                      [FaviconMemoryCache() setObject:image forKey:favicon_url];
+                                      [button setImage:image];
+                                    });
+                                  }];
+  [task resume];
+}
+
 NSImage* SiteTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
   if (!tab.favicon_url.empty()) {
-    NSURL* favicon_url = [NSURL URLWithString:StringFromStdString(tab.favicon_url)];
-    NSImage* favicon = favicon_url == nil ? nil : [[NSImage alloc] initWithContentsOfURL:favicon_url];
+    NSImage* favicon = CachedFavicon(StringFromStdString(tab.favicon_url));
     if (favicon != nil) {
-      [favicon setSize:NSMakeSize(28.0, 28.0)];
       return favicon;
     }
   }
@@ -323,6 +450,9 @@ NSButton* BaseTabButton(size_t index, bool enabled, bool active, id target) {
 NSButton* SiteTabButton(size_t index, const Sidebar::TabState& tab, bool active, id target) {
   NSButton* button = BaseTabButton(index, true, active, target);
   [button setImage:SiteTabImage(tab, active, true)];
+  if (!tab.favicon_url.empty()) {
+    FetchFaviconIfNeeded(StringFromStdString(tab.favicon_url), button);
+  }
   [button setImagePosition:NSImageOnly];
   [button setImageScaling:NSImageScaleProportionallyDown];
   [button setToolTip:tab.title.empty() ? HostFromUrl(tab.url) : StringFromStdString(tab.title)];
@@ -538,6 +668,14 @@ class Sidebar::Impl {
     bridge_->edit_tab_address_action = std::move(action);
   }
 
+  void SetClearTabCookiesAction(TabAction action) {
+    bridge_->clear_tab_cookies_action = std::move(action);
+  }
+
+  void SetClearTabCachesAction(TabAction action) {
+    bridge_->clear_tab_caches_action = std::move(action);
+  }
+
   void SetTabState(const std::vector<Sidebar::TabState>& tabs, size_t active_index) {
     for (NSView* subview in [[tab_stack_ arrangedSubviews] copy]) {
       [tab_stack_ removeArrangedSubview:subview];
@@ -648,6 +786,14 @@ void Sidebar::SetReloadTabAction(TabAction action) {
 
 void Sidebar::SetEditTabAddressAction(TabAction action) {
   impl_->SetEditTabAddressAction(std::move(action));
+}
+
+void Sidebar::SetClearTabCookiesAction(TabAction action) {
+  impl_->SetClearTabCookiesAction(std::move(action));
+}
+
+void Sidebar::SetClearTabCachesAction(TabAction action) {
+  impl_->SetClearTabCachesAction(std::move(action));
 }
 
 void Sidebar::SetTabState(const std::vector<TabState>& tabs, size_t active_index) {

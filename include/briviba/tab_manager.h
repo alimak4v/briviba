@@ -46,6 +46,7 @@ class TabManager {
   void CloseTab(size_t index);
   bool LoadUrl(const std::string& text);
   std::string CurrentUrl() const;
+  std::string UrlForTab(size_t index) const;
   void GoBack();
   void GoForward();
   void Reload();

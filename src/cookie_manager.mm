@@ -6,6 +6,8 @@
 
 #import <WebKit/WebKit.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -38,6 +40,63 @@ class Statement {
   sqlite3_stmt* statement_ = nullptr;
 };
 
+std::string StringFromNSString(NSString* value) {
+  const char* utf8 = [value UTF8String];
+  return utf8 == nullptr ? std::string() : std::string(utf8);
+}
+
+std::string NormalizeDomain(std::string domain) {
+  while (!domain.empty() && domain.front() == '.') {
+    domain.erase(domain.begin());
+  }
+  std::transform(domain.begin(), domain.end(), domain.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  return domain;
+}
+
+bool DomainMatches(const std::string& candidate, const std::string& domain) {
+  const std::string normalized_candidate = NormalizeDomain(candidate);
+  const std::string normalized_domain = NormalizeDomain(domain);
+  if (normalized_candidate.empty() || normalized_domain.empty()) {
+    return false;
+  }
+  if (normalized_candidate == normalized_domain) {
+    return true;
+  }
+  return normalized_candidate.size() > normalized_domain.size() &&
+         normalized_candidate.ends_with("." + normalized_domain);
+}
+
+std::string DateString(NSDate* date) {
+  if (date == nil) {
+    return std::string();
+  }
+  NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+  [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+  [formatter setLocale:[NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"]];
+  return StringFromNSString([formatter stringFromDate:date]);
+}
+
+NSSet<NSString*>* CookieAndSiteStateTypes() {
+  return [NSSet setWithArray:@[
+    WKWebsiteDataTypeCookies,
+    WKWebsiteDataTypeLocalStorage,
+    WKWebsiteDataTypeSessionStorage,
+    WKWebsiteDataTypeIndexedDBDatabases,
+    WKWebsiteDataTypeWebSQLDatabases,
+  ]];
+}
+
+NSSet<NSString*>* CacheTypes() {
+  return [NSSet setWithArray:@[
+    WKWebsiteDataTypeDiskCache,
+    WKWebsiteDataTypeMemoryCache,
+    WKWebsiteDataTypeOfflineWebApplicationCache,
+    WKWebsiteDataTypeServiceWorkerRegistrations,
+  ]];
+}
+
 }  // namespace
 
 class CookieManager::Impl {
@@ -67,6 +126,82 @@ class CookieManager::Impl {
       return;
     }
     ready_callbacks_.push_back(std::move(callback));
+  }
+
+  void ClearAllCookiesAndSiteState(std::function<void()> callback) {
+    [normal_data_store_
+        removeDataOfTypes:CookieAndSiteStateTypes()
+            modifiedSince:[NSDate distantPast]
+        completionHandler:^{
+          RunCallback(std::move(callback));
+        }];
+  }
+
+  void ClearAllCaches(std::function<void()> callback) {
+    [normal_data_store_ removeDataOfTypes:CacheTypes()
+                            modifiedSince:[NSDate distantPast]
+                        completionHandler:^{
+                          RunCallback(std::move(callback));
+                        }];
+  }
+
+  void ClearCookiesAndSiteStateForDomain(const std::string& domain, std::function<void()> callback) {
+    const std::string normalized_domain = NormalizeDomain(domain);
+    WKHTTPCookieStore* cookie_store = [normal_data_store_ httpCookieStore];
+    [cookie_store getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
+      __block size_t pending_cookie_deletes = 0;
+      for (NSHTTPCookie* cookie in cookies) {
+        if (DomainMatches(StringFromNSString([cookie domain]), normalized_domain)) {
+          ++pending_cookie_deletes;
+        }
+      }
+
+      auto remove_records = [this, normalized_domain, callback = std::move(callback)]() mutable {
+        RemoveWebsiteDataRecords(CookieAndSiteStateTypes(), normalized_domain, std::move(callback));
+      };
+
+      if (pending_cookie_deletes == 0) {
+        remove_records();
+        return;
+      }
+
+      __block auto record_removal = std::move(remove_records);
+      for (NSHTTPCookie* cookie in cookies) {
+        if (!DomainMatches(StringFromNSString([cookie domain]), normalized_domain)) {
+          continue;
+        }
+        [cookie_store deleteCookie:cookie
+                 completionHandler:^{
+                   --pending_cookie_deletes;
+                   if (pending_cookie_deletes == 0) {
+                     record_removal();
+                   }
+                 }];
+      }
+    }];
+  }
+
+  void ClearCachesForDomain(const std::string& domain, std::function<void()> callback) {
+    RemoveWebsiteDataRecords(CacheTypes(), NormalizeDomain(domain), std::move(callback));
+  }
+
+  void ListCookies(std::function<void(std::vector<CookieInfo>)> callback) {
+    [[normal_data_store_ httpCookieStore] getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
+      std::vector<CookieInfo> infos;
+      infos.reserve([cookies count]);
+      for (NSHTTPCookie* cookie in cookies) {
+        CookieInfo info;
+        info.name = StringFromNSString([cookie name]);
+        info.value = StringFromNSString([cookie value]);
+        info.domain = StringFromNSString([cookie domain]);
+        info.path = StringFromNSString([cookie path]);
+        info.expires = DateString([cookie expiresDate]);
+        info.secure = [cookie isSecure];
+        info.http_only = [[cookie properties][@"HttpOnly"] boolValue];
+        infos.push_back(std::move(info));
+      }
+      callback(std::move(infos));
+    }];
   }
 
  private:
@@ -166,6 +301,40 @@ class CookieManager::Impl {
     }
   }
 
+  void RemoveWebsiteDataRecords(NSSet<NSString*>* data_types, const std::string& domain,
+                                std::function<void()> callback) {
+    [normal_data_store_ fetchDataRecordsOfTypes:data_types
+                              completionHandler:^(NSArray<WKWebsiteDataRecord*>* records) {
+                                NSMutableArray<WKWebsiteDataRecord*>* matching_records =
+                                    [NSMutableArray array];
+                                for (WKWebsiteDataRecord* record in records) {
+                                  if (DomainMatches(StringFromNSString([record displayName]),
+                                                    domain)) {
+                                    [matching_records addObject:record];
+                                  }
+                                }
+                                if ([matching_records count] == 0) {
+                                  RunCallback(std::move(callback));
+                                  return;
+                                }
+                                [normal_data_store_
+                                      removeDataOfTypes:data_types
+                                        forDataRecords:matching_records
+                                     completionHandler:^{
+                                       RunCallback(std::move(callback));
+                                     }];
+                              }];
+  }
+
+  void RunCallback(std::function<void()> callback) {
+    if (!callback) {
+      return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      callback();
+    });
+  }
+
   size_t pending_legacy_cookie_operations_ = 0;
   bool ready_ = false;
   std::vector<std::function<void()>> ready_callbacks_;
@@ -184,6 +353,28 @@ std::filesystem::path CookieManager::DefaultDatabasePath() {
 
 void CookieManager::WhenReady(std::function<void()> callback) {
   impl_->WhenReady(std::move(callback));
+}
+
+void CookieManager::ClearAllCookiesAndSiteState(std::function<void()> callback) {
+  impl_->ClearAllCookiesAndSiteState(std::move(callback));
+}
+
+void CookieManager::ClearAllCaches(std::function<void()> callback) {
+  impl_->ClearAllCaches(std::move(callback));
+}
+
+void CookieManager::ClearCookiesAndSiteStateForDomain(const std::string& domain,
+                                                      std::function<void()> callback) {
+  impl_->ClearCookiesAndSiteStateForDomain(domain, std::move(callback));
+}
+
+void CookieManager::ClearCachesForDomain(const std::string& domain,
+                                         std::function<void()> callback) {
+  impl_->ClearCachesForDomain(domain, std::move(callback));
+}
+
+void CookieManager::ListCookies(std::function<void(std::vector<CookieInfo>)> callback) {
+  impl_->ListCookies(std::move(callback));
 }
 
 WKWebsiteDataStore* CookieManager::NormalWebsiteDataStore() const {

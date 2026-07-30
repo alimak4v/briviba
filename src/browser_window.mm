@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 @interface BrivibaWindowControlBridge : NSObject <NSWindowDelegate> {
@@ -73,10 +75,16 @@
  @public
   std::function<void(bool)> set_start_secure_action;
   std::function<void(const std::string&)> set_search_engine_action;
+  std::function<void()> clear_all_cookies_action;
+  std::function<void()> clear_all_caches_action;
+  std::function<void()> show_cookies_action;
   std::function<void()> settings_closed_action;
 }
 - (void)toggleStartSecure:(id)sender;
 - (void)changeSearchEngine:(id)sender;
+- (void)clearAllCookies:(id)sender;
+- (void)clearAllCaches:(id)sender;
+- (void)showCookies:(id)sender;
 @end
 
 @implementation BrivibaSettingsBridge
@@ -100,6 +108,27 @@
   }
   const char* utf8 = [(NSString*)represented_object UTF8String];
   set_search_engine_action(utf8 == nullptr ? std::string() : std::string(utf8));
+}
+
+- (void)clearAllCookies:(id)sender {
+  (void)sender;
+  if (clear_all_cookies_action) {
+    clear_all_cookies_action();
+  }
+}
+
+- (void)clearAllCaches:(id)sender {
+  (void)sender;
+  if (clear_all_caches_action) {
+    clear_all_caches_action();
+  }
+}
+
+- (void)showCookies:(id)sender {
+  (void)sender;
+  if (show_cookies_action) {
+    show_cookies_action();
+  }
 }
 
 - (void)windowWillClose:(NSNotification*)notification {
@@ -198,6 +227,13 @@ std::string SearchEngineHomeUrl(const std::string& engine_id) {
   return "https://duckduckgo.com";
 }
 
+std::string HostFromUrl(const std::string& url) {
+  NSString* url_string = [NSString stringWithUTF8String:url.c_str()];
+  NSURL* parsed_url = [NSURL URLWithString:url_string];
+  NSString* host = [[parsed_url host] lowercaseString];
+  return host == nil ? std::string() : StringFromNSString(host);
+}
+
 }  // namespace
 
 class BrowserWindow::Impl {
@@ -236,6 +272,9 @@ class BrowserWindow::Impl {
       settings_manager_.SetDefaultSearchEngine(engine_id);
       tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
     };
+    settings_bridge_->clear_all_cookies_action = [this] { ClearAllCookiesAndSiteState(); };
+    settings_bridge_->clear_all_caches_action = [this] { ClearAllCaches(); };
+    settings_bridge_->show_cookies_action = [this] { RefreshCookieListText(); };
     settings_bridge_->settings_closed_action = [this] { settings_window_ = nil; };
 
     content_view_ = [[NSView alloc] initWithFrame:[[window_ contentView] bounds]];
@@ -256,6 +295,10 @@ class BrowserWindow::Impl {
     sidebar_.SetForwardTabAction([this](size_t index) { GoForwardTab(index); });
     sidebar_.SetReloadTabAction([this](size_t index) { ReloadTab(index); });
     sidebar_.SetEditTabAddressAction([this](size_t index) { ShowAddressEditor(index); });
+    sidebar_.SetClearTabCookiesAction([this](size_t index) {
+      ClearCookiesAndSiteStateForTab(index);
+    });
+    sidebar_.SetClearTabCachesAction([this](size_t index) { ClearCachesForTab(index); });
     tab_manager_.SetNavigationStateCallback(
         [this](bool can_go_back, bool can_go_forward, const std::string& url,
                const std::string& title, const std::string& favicon_url) {
@@ -394,6 +437,80 @@ class BrowserWindow::Impl {
     tab_manager_.LoadUrl(StringFromNSString([address_field stringValue]));
   }
 
+  bool ConfirmDestructiveAction(NSString* title, NSString* detail) {
+    NSAlert* alert = [[NSAlert alloc] init];
+    [alert setMessageText:title];
+    [alert setInformativeText:detail];
+    [alert addButtonWithTitle:@"Delete"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [[alert buttons][0] setKeyEquivalent:@""];
+    return [alert runModal] == NSAlertFirstButtonReturn;
+  }
+
+  void ShowStorageDone(NSString* message) {
+    NSAlert* alert = [[NSAlert alloc] init];
+    [alert setMessageText:message];
+    [alert addButtonWithTitle:@"OK"];
+    [alert runModal];
+  }
+
+  void ClearAllCookiesAndSiteState() {
+    if (!ConfirmDestructiveAction(@"Delete all cookies and site state?",
+                                  @"This signs sites out and resets cookie banners, local storage, "
+                                  @"IndexedDB, and related site state.")) {
+      return;
+    }
+    cookie_manager_.ClearAllCookiesAndSiteState([this] {
+      ShowStorageDone(@"All cookies and site state were deleted.");
+      RefreshCookieListText();
+    });
+  }
+
+  void ClearAllCaches() {
+    if (!ConfirmDestructiveAction(@"Delete all caches?",
+                                  @"This clears WebKit disk cache, memory cache, offline cache, "
+                                  @"and service worker registrations.")) {
+      return;
+    }
+    cookie_manager_.ClearAllCaches([this] { ShowStorageDone(@"All caches were deleted."); });
+  }
+
+  void ClearCookiesAndSiteStateForTab(size_t index) {
+    const std::string domain = HostFromUrl(tab_manager_.UrlForTab(index));
+    if (domain.empty()) {
+      return;
+    }
+    NSString* domain_string = [NSString stringWithUTF8String:domain.c_str()];
+    NSString* detail =
+        [NSString stringWithFormat:@"This deletes cookies and site state for %@.", domain_string];
+    if (!ConfirmDestructiveAction(@"Delete cookies for this domain?", detail)) {
+      return;
+    }
+    cookie_manager_.ClearCookiesAndSiteStateForDomain(domain, [this, domain] {
+      NSString* domain_string = [NSString stringWithUTF8String:domain.c_str()];
+      ShowStorageDone([NSString stringWithFormat:@"Cookies and site state were deleted for %@.",
+                                                 domain_string]);
+      RefreshCookieListText();
+    });
+  }
+
+  void ClearCachesForTab(size_t index) {
+    const std::string domain = HostFromUrl(tab_manager_.UrlForTab(index));
+    if (domain.empty()) {
+      return;
+    }
+    NSString* domain_string = [NSString stringWithUTF8String:domain.c_str()];
+    NSString* detail = [NSString stringWithFormat:@"This deletes WebKit caches for %@.",
+                                                  domain_string];
+    if (!ConfirmDestructiveAction(@"Delete caches for this domain?", detail)) {
+      return;
+    }
+    cookie_manager_.ClearCachesForDomain(domain, [this, domain] {
+      NSString* domain_string = [NSString stringWithUTF8String:domain.c_str()];
+      ShowStorageDone([NSString stringWithFormat:@"Caches were deleted for %@.", domain_string]);
+    });
+  }
+
   void ToggleBrowsingMode() {
     secure_mode_ = !secure_mode_;
     tab_manager_.SetBrowsingMode(secure_mode_ ? TabManager::BrowsingMode::kSecure
@@ -437,11 +554,12 @@ class BrowserWindow::Impl {
   void ShowSettingsWindow() {
     if (settings_window_ != nil) {
       [settings_window_ makeKeyAndOrderFront:nil];
+      RefreshCookieListText();
       return;
     }
 
     settings_window_ = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0.0, 0.0, 420.0, 300.0)
+        initWithContentRect:NSMakeRect(0.0, 0.0, 620.0, 500.0)
                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                     backing:NSBackingStoreBuffered
                       defer:NO];
@@ -454,6 +572,22 @@ class BrowserWindow::Impl {
     [settings_view setWantsLayer:YES];
     [[settings_view layer] setBackgroundColor:[[NSColor windowBackgroundColor] CGColor]];
     [settings_window_ setContentView:settings_view];
+
+    NSTabView* tab_view = [[NSTabView alloc] initWithFrame:NSZeroRect];
+    [tab_view setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [settings_view addSubview:tab_view];
+
+    NSTabViewItem* general_item = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
+    [general_item setLabel:@"General"];
+    NSView* general_view = [[NSView alloc] initWithFrame:NSZeroRect];
+    [general_item setView:general_view];
+    [tab_view addTabViewItem:general_item];
+
+    NSTabViewItem* cookies_item = [[NSTabViewItem alloc] initWithIdentifier:@"cookies"];
+    [cookies_item setLabel:@"Cookies"];
+    NSView* cookies_view = [[NSView alloc] initWithFrame:NSZeroRect];
+    [cookies_item setView:cookies_view];
+    [tab_view addTabViewItem:cookies_item];
 
     NSTextField* title_label = [NSTextField labelWithString:@"Briviba Settings"];
     [title_label setFont:[NSFont systemFontOfSize:18.0 weight:NSFontWeightSemibold]];
@@ -510,17 +644,70 @@ class BrowserWindow::Impl {
     [start_secure_help setLineBreakMode:NSLineBreakByWordWrapping];
     [start_secure_help setTranslatesAutoresizingMaskIntoConstraints:NO];
 
-    [settings_view addSubview:title_label];
-    [settings_view addSubview:search_label];
-    [settings_view addSubview:search_engine_popup];
-    [settings_view addSubview:privacy_label];
-    [settings_view addSubview:start_secure_checkbox];
-    [settings_view addSubview:start_secure_help];
+    NSTextField* storage_label = [NSTextField labelWithString:@"Storage"];
+    [storage_label setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold]];
+    [storage_label setTextColor:[NSColor secondaryLabelColor]];
+    [storage_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSButton* clear_cookies_button =
+        [NSButton buttonWithTitle:@"Delete Cookies & Site State"
+                           target:settings_bridge_
+                           action:@selector(clearAllCookies:)];
+    [clear_cookies_button setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSButton* clear_caches_button = [NSButton buttonWithTitle:@"Delete Caches"
+                                                       target:settings_bridge_
+                                                       action:@selector(clearAllCaches:)];
+    [clear_caches_button setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    [general_view addSubview:title_label];
+    [general_view addSubview:search_label];
+    [general_view addSubview:search_engine_popup];
+    [general_view addSubview:privacy_label];
+    [general_view addSubview:start_secure_checkbox];
+    [general_view addSubview:start_secure_help];
+    [general_view addSubview:storage_label];
+    [general_view addSubview:clear_cookies_button];
+    [general_view addSubview:clear_caches_button];
+
+    NSTextField* cookies_title = [NSTextField labelWithString:@"Cookies"];
+    [cookies_title setFont:[NSFont systemFontOfSize:18.0 weight:NSFontWeightSemibold]];
+    [cookies_title setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSButton* refresh_cookies_button =
+        [NSButton buttonWithTitle:@"Refresh"
+                           target:settings_bridge_
+                           action:@selector(showCookies:)];
+    [refresh_cookies_button setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSScrollView* cookie_scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    [cookie_scroll_view setHasVerticalScroller:YES];
+    [cookie_scroll_view setAutohidesScrollers:YES];
+    [cookie_scroll_view setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    cookie_list_text_view_ = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    [cookie_list_text_view_ setEditable:NO];
+    [cookie_list_text_view_ setFont:[NSFont monospacedSystemFontOfSize:12.0
+                                                                 weight:NSFontWeightRegular]];
+    [cookie_list_text_view_ setString:@"Loading cookies..."];
+    [cookie_scroll_view setDocumentView:cookie_list_text_view_];
+
+    [cookies_view addSubview:cookies_title];
+    [cookies_view addSubview:refresh_cookies_button];
+    [cookies_view addSubview:cookie_scroll_view];
 
     [NSLayoutConstraint activateConstraints:@[
-      [[title_label leadingAnchor] constraintEqualToAnchor:[settings_view leadingAnchor]
+      [[tab_view leadingAnchor] constraintEqualToAnchor:[settings_view leadingAnchor]
+                                               constant:12.0],
+      [[tab_view topAnchor] constraintEqualToAnchor:[settings_view topAnchor] constant:12.0],
+      [[tab_view trailingAnchor] constraintEqualToAnchor:[settings_view trailingAnchor]
+                                                constant:-12.0],
+      [[tab_view bottomAnchor] constraintEqualToAnchor:[settings_view bottomAnchor]
+                                              constant:-12.0],
+
+      [[title_label leadingAnchor] constraintEqualToAnchor:[general_view leadingAnchor]
                                                   constant:24.0],
-      [[title_label topAnchor] constraintEqualToAnchor:[settings_view topAnchor] constant:22.0],
+      [[title_label topAnchor] constraintEqualToAnchor:[general_view topAnchor] constant:22.0],
       [[search_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
       [[search_label topAnchor] constraintEqualToAnchor:[title_label bottomAnchor]
                                                 constant:28.0],
@@ -537,11 +724,66 @@ class BrowserWindow::Impl {
       [[start_secure_help leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
       [[start_secure_help topAnchor] constraintEqualToAnchor:[start_secure_checkbox bottomAnchor]
                                                    constant:8.0],
-      [[start_secure_help trailingAnchor] constraintEqualToAnchor:[settings_view trailingAnchor]
+      [[start_secure_help trailingAnchor] constraintEqualToAnchor:[general_view trailingAnchor]
                                                          constant:-24.0],
+      [[storage_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[storage_label topAnchor] constraintEqualToAnchor:[start_secure_help bottomAnchor]
+                                               constant:24.0],
+      [[clear_cookies_button leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[clear_cookies_button topAnchor] constraintEqualToAnchor:[storage_label bottomAnchor]
+                                                      constant:12.0],
+      [[clear_caches_button leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[clear_caches_button topAnchor] constraintEqualToAnchor:[clear_cookies_button bottomAnchor]
+                                                     constant:10.0],
+
+      [[cookies_title leadingAnchor] constraintEqualToAnchor:[cookies_view leadingAnchor]
+                                                    constant:18.0],
+      [[cookies_title topAnchor] constraintEqualToAnchor:[cookies_view topAnchor] constant:18.0],
+      [[refresh_cookies_button trailingAnchor] constraintEqualToAnchor:[cookies_view trailingAnchor]
+                                                              constant:-18.0],
+      [[refresh_cookies_button centerYAnchor] constraintEqualToAnchor:[cookies_title centerYAnchor]],
+      [[cookie_scroll_view leadingAnchor] constraintEqualToAnchor:[cookies_view leadingAnchor]
+                                                         constant:18.0],
+      [[cookie_scroll_view topAnchor] constraintEqualToAnchor:[cookies_title bottomAnchor]
+                                                    constant:14.0],
+      [[cookie_scroll_view trailingAnchor] constraintEqualToAnchor:[cookies_view trailingAnchor]
+                                                          constant:-18.0],
+      [[cookie_scroll_view bottomAnchor] constraintEqualToAnchor:[cookies_view bottomAnchor]
+                                                       constant:-18.0],
     ]];
 
     [settings_window_ makeKeyAndOrderFront:nil];
+    RefreshCookieListText();
+  }
+
+  std::string CookieListText(const std::vector<CookieManager::CookieInfo>& cookies) const {
+    std::ostringstream output;
+    output << "Cookies: " << cookies.size() << "\n\n";
+    for (const auto& cookie : cookies) {
+      output << cookie.domain << "\n"
+             << "  " << cookie.name << "=" << cookie.value << "\n"
+             << "  path: " << cookie.path << "\n";
+      if (!cookie.expires.empty()) {
+        output << "  expires: " << cookie.expires << "\n";
+      }
+      output << "  secure: " << (cookie.secure ? "yes" : "no")
+             << ", httpOnly: " << (cookie.http_only ? "yes" : "no") << "\n\n";
+    }
+    return output.str();
+  }
+
+  void RefreshCookieListText() {
+    if (cookie_list_text_view_ == nil) {
+      return;
+    }
+    [cookie_list_text_view_ setString:@"Loading cookies..."];
+    cookie_manager_.ListCookies([this](std::vector<CookieManager::CookieInfo> cookies) {
+      std::sort(cookies.begin(), cookies.end(), [](const auto& left, const auto& right) {
+        return std::tie(left.domain, left.name, left.path) < std::tie(right.domain, right.name,
+                                                                      right.path);
+      });
+      [cookie_list_text_view_ setString:[NSString stringWithUTF8String:CookieListText(cookies).c_str()]];
+    });
   }
 
   void ApplyPageColor(Tab::PageColor color) {
@@ -576,6 +818,7 @@ class BrowserWindow::Impl {
   BrivibaWindowControlBridge* window_control_bridge_ = nil;
   BrivibaSettingsBridge* settings_bridge_ = nil;
   NSWindow* settings_window_ = nil;
+  NSTextView* cookie_list_text_view_ = nil;
   Tab::PageColor last_page_color_;
   bool initial_session_loaded_ = false;
   bool secure_mode_ = false;
