@@ -584,7 +584,7 @@ NSImage* RenderFaviconForSidebar(NSImage* source_image, NSString* cache_key) {
     [[NSColor colorWithWhite:1.0 alpha:1.0] setFill];
     [background fill];
 
-    const CGFloat compact_icon_size = 15.0;
+    const CGFloat compact_icon_size = 20.0;
     const CGFloat origin = (kCanvasSize - compact_icon_size) / 2.0;
     [source_image drawInRect:NSMakeRect(origin, origin, compact_icon_size, compact_icon_size)
                     fromRect:NSZeroRect
