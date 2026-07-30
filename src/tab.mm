@@ -13,7 +13,6 @@
  @public
   briviba::Tab::NavigationStateCallback navigation_state_callback;
   briviba::Tab::PageColorCallback page_color_callback;
-  briviba::Tab::NavigationRetargetCallback navigation_retarget_callback;
   briviba::DownloadManager* download_manager;
 }
 - (void)emitNavigationStateForWebView:(WKWebView*)web_view;
@@ -22,23 +21,6 @@
 @end
 
 @implementation BrivibaNavigationDelegate
-
-- (void)webView:(WKWebView*)webView
-    decidePolicyForNavigationAction:(WKNavigationAction*)navigationAction
-                    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-  (void)webView;
-  WKFrameInfo* target_frame = [navigationAction targetFrame];
-  if (navigation_retarget_callback && (target_frame == nil || [target_frame isMainFrame])) {
-    NSURL* url = [[navigationAction request] URL];
-    NSString* absolute_string = url == nil ? @"" : [url absoluteString];
-    const char* utf8 = [absolute_string UTF8String];
-    if (utf8 != nullptr && navigation_retarget_callback(std::string(utf8))) {
-      decisionHandler(WKNavigationActionPolicyCancel);
-      return;
-    }
-  }
-  decisionHandler(WKNavigationActionPolicyAllow);
-}
 
 - (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation {
   (void)navigation;
@@ -346,13 +328,6 @@ class Tab::Impl {
     }
   }
 
-  void SetNavigationRetargetCallback(NavigationRetargetCallback callback) {
-    navigation_retarget_callback_ = std::move(callback);
-    if (navigation_delegate_ != nil) {
-      navigation_delegate_->navigation_retarget_callback = navigation_retarget_callback_;
-    }
-  }
-
   NSView* NativeView() {
     EnsureLoaded();
     return web_view_;
@@ -377,7 +352,6 @@ class Tab::Impl {
     navigation_delegate_->download_manager = &download_manager_;
     navigation_delegate_->navigation_state_callback = navigation_state_callback_;
     navigation_delegate_->page_color_callback = page_color_callback_;
-    navigation_delegate_->navigation_retarget_callback = navigation_retarget_callback_;
     [web_view_ setNavigationDelegate:navigation_delegate_];
     [web_view_ setAllowsBackForwardNavigationGestures:YES];
     [web_view_ setTranslatesAutoresizingMaskIntoConstraints:NO];
@@ -404,7 +378,6 @@ class Tab::Impl {
   DownloadManager& download_manager_;
   NavigationStateCallback navigation_state_callback_;
   PageColorCallback page_color_callback_;
-  NavigationRetargetCallback navigation_retarget_callback_;
   std::string search_engine_id_ = "duckduckgo";
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
@@ -454,10 +427,6 @@ void Tab::SetNavigationStateCallback(NavigationStateCallback callback) {
 
 void Tab::SetPageColorCallback(PageColorCallback callback) {
   impl_->SetPageColorCallback(std::move(callback));
-}
-
-void Tab::SetNavigationRetargetCallback(NavigationRetargetCallback callback) {
-  impl_->SetNavigationRetargetCallback(std::move(callback));
 }
 
 NSView* Tab::NativeView() const {

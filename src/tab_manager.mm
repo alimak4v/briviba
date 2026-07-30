@@ -332,46 +332,6 @@ class TabManager::Impl {
         page_color_callback_(color);
       }
     });
-    tab->SetNavigationRetargetCallback([this, tab](const std::string& url) {
-      return RetargetNavigationIfNeeded(tab, url);
-    });
-  }
-
-  bool RetargetNavigationIfNeeded(Tab* source_tab, const std::string& url) {
-    const size_t source_index = IndexForTab(source_tab);
-    if (source_index >= tabs_.size()) {
-      return false;
-    }
-    const std::string top_level_site = TopLevelSiteFromInput(url, search_engine_id_);
-    if (top_level_site.empty() || (tabs_[source_index].top_level_site == top_level_site &&
-                                   tabs_[source_index].browsing_mode == browsing_mode_)) {
-      return false;
-    }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-      RetargetTabNavigation(source_index, top_level_site, url);
-    });
-    return true;
-  }
-
-  void RetargetTabNavigation(size_t index, const std::string& top_level_site,
-                             const std::string& url) {
-    if (index >= tabs_.size()) {
-      return;
-    }
-    RemoveTabView(index);
-    ManagedTab& managed_tab = tabs_[index];
-    managed_tab.tab = CreateTabForTopLevelSite(top_level_site);
-    managed_tab.top_level_site = top_level_site;
-    managed_tab.url = url;
-    managed_tab.title.clear();
-    managed_tab.favicon_url.clear();
-    managed_tab.browsing_mode = browsing_mode_;
-    if (index == active_index_) {
-      MountActiveTab();
-    }
-    managed_tab.tab->LoadUrl(url);
-    EmitTabState();
   }
 
   void MountActiveTab() {
