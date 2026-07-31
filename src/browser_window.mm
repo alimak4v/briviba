@@ -289,6 +289,100 @@ bool ShouldShowVideoTranslateButton(const std::string& url) {
          path_text.find("/shorts") != std::string::npos;
 }
 
+NSString* VideoTranslationShimSource() {
+  return
+      @"(() => {"
+       "if (window.__brivibaVideoTranslationShimInstalled) return;"
+       "window.__brivibaVideoTranslationShimInstalled = true;"
+       "window.unsafeWindow = window.unsafeWindow || window;"
+       "window.GM_info = window.GM_info || {"
+       "  script: { name: 'Briviba Video Translation', version: 'local', author: 'Briviba' }"
+       "};"
+       "const storagePrefix = '__briviba_vot__';"
+       "const readValue = (name, fallback) => {"
+       "  try {"
+       "    const raw = window.localStorage.getItem(storagePrefix + name);"
+       "    return raw === null ? fallback : JSON.parse(raw);"
+       "  } catch (_) {"
+       "    return fallback;"
+       "  }"
+       "};"
+       "const writeValue = (name, value) => {"
+       "  try { window.localStorage.setItem(storagePrefix + name, JSON.stringify(value)); } catch (_) {}"
+       "};"
+       "const deleteValue = (name) => {"
+       "  try { window.localStorage.removeItem(storagePrefix + name); } catch (_) {}"
+       "};"
+       "const listValues = () => {"
+       "  try {"
+       "    return Object.keys(window.localStorage)"
+       "      .filter((key) => key.startsWith(storagePrefix))"
+       "      .map((key) => key.slice(storagePrefix.length));"
+       "  } catch (_) {"
+       "    return [];"
+       "  }"
+       "};"
+       "window.GM_addStyle = window.GM_addStyle || ((css) => {"
+       "  const style = document.createElement('style');"
+       "  style.textContent = css;"
+       "  (document.head || document.documentElement).appendChild(style);"
+       "  return style;"
+       "});"
+       "window.GM_getValue = window.GM_getValue || ((name, fallback) => readValue(name, fallback));"
+       "window.GM_setValue = window.GM_setValue || ((name, value) => writeValue(name, value));"
+       "window.GM_deleteValue = window.GM_deleteValue || ((name) => deleteValue(name));"
+       "window.GM_listValues = window.GM_listValues || (() => listValues());"
+       "window.GM_notification = window.GM_notification || ((details) => {"
+       "  try { console.log(details); } catch (_) {}"
+       "});"
+       "window.GM_xmlhttpRequest = window.GM_xmlhttpRequest || ((options) => {"
+       "  const controller = new AbortController();"
+       "  const headers = new Headers(options.headers || {});"
+       "  fetch(options.url, {"
+       "    method: options.method || 'GET',"
+       "    headers,"
+       "    body: options.data,"
+       "    signal: controller.signal,"
+       "    credentials: 'include',"
+       "  }).then(async (response) => {"
+       "    const responseType = options.responseType || 'text';"
+       "    let payload = null;"
+       "    if (responseType === 'blob') {"
+       "      payload = await response.blob();"
+       "    } else if (responseType === 'arraybuffer') {"
+       "      payload = await response.arrayBuffer();"
+       "    } else {"
+       "      payload = await response.text();"
+       "    }"
+       "    const responseHeaders = Array.from(response.headers.entries())"
+       "      .map(([key, value]) => `${key}: ${value}`).join('\\n');"
+       "    if (typeof options.onload === 'function') {"
+       "      options.onload({"
+       "        response: payload,"
+       "        responseHeaders,"
+       "        status: response.status,"
+       "        statusText: response.statusText,"
+       "        finalUrl: response.url,"
+       "      });"
+       "    }"
+       "  }).catch((error) => {"
+       "    if (controller.signal.aborted) {"
+       "      if (typeof options.onabort === 'function') options.onabort(error);"
+       "      return;"
+       "    }"
+       "    if (typeof options.onerror === 'function') {"
+       "      options.onerror({ error: String(error), statusText: String(error) });"
+       "    }"
+       "  });"
+       "  return { abort: () => controller.abort() };"
+       "});"
+       "})();";
+}
+
+NSString* VideoTranslationSourceUrl() {
+  return @"https://gist.githubusercontent.com/RimuruDev/c9b2d31562a50afa5d8f6e2e21ef4698/raw/Tempermonkey.js";
+}
+
 }  // namespace
 
 class BrowserWindow::Impl {
@@ -625,8 +719,64 @@ class BrowserWindow::Impl {
   }
 
   void OpenVideoTranslation() {
-    tab_manager_.CreateTab();
-    tab_manager_.LoadUrl("https://browser.yandex.ru/c/video-translation");
+    if (!ShouldShowVideoTranslateButton(tab_manager_.CurrentUrl())) {
+      return;
+    }
+    if (video_translation_loading_) {
+      return;
+    }
+    if (!video_translation_script_cache_.empty()) {
+      InjectVideoTranslationScript(video_translation_script_cache_);
+      return;
+    }
+
+    video_translation_loading_ = true;
+    NSURL* script_url = [NSURL URLWithString:VideoTranslationSourceUrl()];
+    NSURLSessionDataTask* task =
+        [[NSURLSession sharedSession] dataTaskWithURL:script_url
+                                   completionHandler:[this](NSData* data, NSURLResponse* response,
+                                                            NSError* error) {
+                                     (void)response;
+                                     std::string loaded_script;
+                                     if (error == nil && [data length] > 0) {
+                                       NSString* script = [[NSString alloc] initWithData:data
+                                                                                 encoding:NSUTF8StringEncoding];
+                                       if (script != nil) {
+                                         const char* utf8 = [script UTF8String];
+                                         if (utf8 != nullptr) {
+                                           loaded_script = std::string(utf8);
+                                         }
+                                       }
+                                     }
+                                     dispatch_async(dispatch_get_main_queue(), [this, loaded_script] {
+                                       video_translation_loading_ = false;
+                                       if (loaded_script.empty()) {
+                                         ShowStorageDone(@"Could not load the video translation module.");
+                                         return;
+                                       }
+                                       video_translation_script_cache_ = loaded_script;
+                                       InjectVideoTranslationScript(video_translation_script_cache_);
+                                     });
+                                   }];
+    [task resume];
+  }
+
+  void InjectVideoTranslationScript(const std::string& script) {
+    if (script.empty()) {
+      return;
+    }
+
+    NSString* shim = VideoTranslationShimSource();
+    NSString* source = [NSString stringWithUTF8String:script.c_str()];
+    NSMutableString* wrapped_script = [NSMutableString string];
+    [wrapped_script appendString:shim];
+    [wrapped_script appendString:@"\n(() => {"];
+    [wrapped_script appendString:@"if (window.__brivibaVideoTranslationInstalled) return;"];
+    [wrapped_script appendString:@"window.__brivibaVideoTranslationInstalled = true;"];
+    [wrapped_script appendString:@"\n"];
+    [wrapped_script appendString:source];
+    [wrapped_script appendString:@"\n})();"];
+    tab_manager_.EvaluateJavaScriptOnActiveTab(StringFromNSString(wrapped_script));
   }
 
   void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }
@@ -982,6 +1132,8 @@ class BrowserWindow::Impl {
   Tab::PageColor last_page_color_;
   bool initial_session_loaded_ = false;
   bool secure_mode_ = false;
+  bool video_translation_loading_ = false;
+  std::string video_translation_script_cache_;
 };
 
 BrowserWindow::BrowserWindow() : impl_(std::make_unique<Impl>()) {}

@@ -57,6 +57,7 @@ class TabManager {
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
   void SetTabStateCallback(TabStateCallback callback);
+  void EvaluateJavaScriptOnActiveTab(const std::string& script);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

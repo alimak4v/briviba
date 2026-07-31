@@ -232,6 +232,13 @@ class TabManager::Impl {
     }
   }
 
+  void EvaluateJavaScriptOnActiveTab(const std::string& script) {
+    Tab* tab = ActiveTab();
+    if (tab != nullptr) {
+      tab->EvaluateJavaScript(script);
+    }
+  }
+
   void SetSearchEngine(const std::string& engine_id) {
     if (search_engine_id_ == engine_id) {
       return;
@@ -562,6 +569,10 @@ void TabManager::SetPageColorCallback(PageColorCallback callback) {
 
 void TabManager::SetTabStateCallback(TabStateCallback callback) {
   impl_->SetTabStateCallback(std::move(callback));
+}
+
+void TabManager::EvaluateJavaScriptOnActiveTab(const std::string& script) {
+  impl_->EvaluateJavaScriptOnActiveTab(script);
 }
 
 NSView* TabManager::NativeView() const {

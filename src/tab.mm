@@ -531,6 +531,19 @@ class Tab::Impl {
     EmitNavigationState();
   }
 
+  void EvaluateJavaScript(const std::string& script) {
+    EnsureLoaded();
+    if (web_view_ == nil || script.empty()) {
+      return;
+    }
+
+    NSString* script_string = [NSString stringWithUTF8String:script.c_str()];
+    if (script_string == nil) {
+      return;
+    }
+    [web_view_ evaluateJavaScript:script_string completionHandler:nil];
+  }
+
   void SetSearchEngine(const std::string& engine_id) { search_engine_id_ = engine_id; }
 
   void SetNavigationStateCallback(NavigationStateCallback callback) {
@@ -683,6 +696,10 @@ void Tab::GoForward() {
 
 void Tab::Reload() {
   impl_->Reload();
+}
+
+void Tab::EvaluateJavaScript(const std::string& script) {
+  impl_->EvaluateJavaScript(script);
 }
 
 void Tab::SetSearchEngine(const std::string& engine_id) {
