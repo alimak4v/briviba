@@ -256,6 +256,39 @@ std::string HostFromUrl(const std::string& url) {
   return host == nil ? std::string() : StringFromNSString(host);
 }
 
+bool ShouldShowVideoTranslateButton(const std::string& url) {
+  NSString* url_string = [NSString stringWithUTF8String:url.c_str()];
+  NSURL* parsed_url = [NSURL URLWithString:url_string];
+  NSString* host = [[parsed_url host] lowercaseString];
+  NSString* path = [[parsed_url path] lowercaseString];
+  if (host == nil) {
+    return false;
+  }
+  const std::string host_text = StringFromNSString(host);
+  const bool supported_host = host_text.ends_with("youtube.com") ||
+                             host_text.ends_with("youtu.be") ||
+                             host_text.ends_with("vimeo.com") ||
+                             host_text.ends_with("vk.com") ||
+                             host_text.ends_with("vkvideo.ru") ||
+                             host_text.ends_with("dzen.ru") ||
+                             host_text.ends_with("rutube.ru") ||
+                             host_text.ends_with("ok.ru") ||
+                             host_text.ends_with("coursera.org");
+  if (!supported_host) {
+    return false;
+  }
+  if (path == nil) {
+    return true;
+  }
+  const std::string path_text = StringFromNSString(path);
+  return path_text.find("/watch") != std::string::npos ||
+         path_text.find("/video") != std::string::npos ||
+         path_text.find("/videos") != std::string::npos ||
+         path_text.find("/clip") != std::string::npos ||
+         path_text.find("/clips") != std::string::npos ||
+         path_text.find("/shorts") != std::string::npos;
+}
+
 }  // namespace
 
 class BrowserWindow::Impl {
@@ -325,6 +358,7 @@ class BrowserWindow::Impl {
     sidebar_.SetBackTabAction([this](size_t index) { GoBackTab(index); });
     sidebar_.SetForwardTabAction([this](size_t index) { GoForwardTab(index); });
     sidebar_.SetReloadTabAction([this](size_t index) { ReloadTab(index); });
+    sidebar_.SetTranslateVideoAction([this] { OpenVideoTranslation(); });
     sidebar_.SetEditTabAddressAction([this](size_t index) { ShowAddressEditor(index); });
     sidebar_.SetClearTabCookiesAction([this](size_t index) {
       ClearCookiesAndSiteStateForTab(index);
@@ -337,6 +371,7 @@ class BrowserWindow::Impl {
           (void)can_go_back;
           (void)can_go_forward;
           (void)title;
+          sidebar_.SetTranslateVideoVisible(ShouldShowVideoTranslateButton(url));
           if (!secure_mode_) {
             history_manager_.RecordVisit(url);
           }
@@ -587,6 +622,11 @@ class BrowserWindow::Impl {
     secure_mode_ = !secure_mode_;
     tab_manager_.SetBrowsingMode(secure_mode_ ? TabManager::BrowsingMode::kSecure
                                               : TabManager::BrowsingMode::kNormal);
+  }
+
+  void OpenVideoTranslation() {
+    tab_manager_.CreateTab();
+    tab_manager_.LoadUrl("https://browser.yandex.ru/c/video-translation");
   }
 
   void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }

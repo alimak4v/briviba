@@ -23,6 +23,7 @@
   briviba::Sidebar::TabAction back_tab_action;
   briviba::Sidebar::TabAction forward_tab_action;
   briviba::Sidebar::TabAction reload_tab_action;
+  briviba::Sidebar::Action translate_video_action;
   briviba::Sidebar::TabAction edit_tab_address_action;
   briviba::Sidebar::TabAction clear_tab_cookies_action;
   briviba::Sidebar::TabAction clear_tab_caches_action;
@@ -34,6 +35,7 @@
 - (void)backTab:(id)sender;
 - (void)forwardTab:(id)sender;
 - (void)reloadTab:(id)sender;
+- (void)translateVideo:(id)sender;
 - (void)editTabAddress:(id)sender;
 - (void)clearTabCookies:(id)sender;
 - (void)clearTabCaches:(id)sender;
@@ -88,6 +90,13 @@
     return;
   }
   reload_tab_action(static_cast<size_t>([sender tag]));
+}
+
+- (void)translateVideo:(id)sender {
+  (void)sender;
+  if (translate_video_action) {
+    translate_video_action();
+  }
 }
 
 - (void)editTabAddress:(id)sender {
@@ -1059,6 +1068,11 @@ class Sidebar::Impl {
     [tab_document_view_ addSubview:top_stack_];
 
     control_stack_ = StackView(NSUserInterfaceLayoutOrientationVertical, NSLayoutAttributeCenterX);
+    translate_video_button_ = IconButton(@"captions.bubble", @"Translate video");
+    [translate_video_button_ setTarget:bridge_];
+    [translate_video_button_ setAction:@selector(translateVideo:)];
+    [translate_video_button_ setHidden:YES];
+    [control_stack_ addArrangedSubview:translate_video_button_];
     settings_button_ = IconButton(@"gearshape", @"Settings");
     [settings_button_ setTarget:bridge_];
     [settings_button_ setAction:@selector(openSettings:)];
@@ -1161,6 +1175,10 @@ class Sidebar::Impl {
 
   void SetReloadTabAction(TabAction action) { bridge_->reload_tab_action = std::move(action); }
 
+  void SetTranslateVideoAction(Action action) {
+    bridge_->translate_video_action = std::move(action);
+  }
+
   void SetEditTabAddressAction(TabAction action) {
     bridge_->edit_tab_address_action = std::move(action);
   }
@@ -1224,6 +1242,10 @@ class Sidebar::Impl {
     ApplyAppearance();
   }
 
+  void SetTranslateVideoVisible(bool visible) {
+    [translate_video_button_ setHidden:!visible];
+  }
+
   NSView* NativeView() const { return view_; }
 
  private:
@@ -1284,6 +1306,7 @@ class Sidebar::Impl {
   NSArray<NSLayoutConstraint*>* vertical_constraints_ = nil;
   NSArray<NSLayoutConstraint*>* horizontal_constraints_ = nil;
   NSButton* new_tab_button_ = nil;
+  NSButton* translate_video_button_ = nil;
   NSButton* settings_button_ = nil;
   NSView* view_ = nil;
   Sidebar::DockPosition dock_position_ = Sidebar::DockPosition::kLeft;
@@ -1327,6 +1350,10 @@ void Sidebar::SetReloadTabAction(TabAction action) {
   impl_->SetReloadTabAction(std::move(action));
 }
 
+void Sidebar::SetTranslateVideoAction(Action action) {
+  impl_->SetTranslateVideoAction(std::move(action));
+}
+
 void Sidebar::SetEditTabAddressAction(TabAction action) {
   impl_->SetEditTabAddressAction(std::move(action));
 }
@@ -1349,6 +1376,10 @@ void Sidebar::SetTabState(const std::vector<TabState>& tabs, size_t active_index
 
 void Sidebar::SetFullscreenAppearance(bool fullscreen) {
   impl_->SetFullscreenAppearance(fullscreen);
+}
+
+void Sidebar::SetTranslateVideoVisible(bool visible) {
+  impl_->SetTranslateVideoVisible(visible);
 }
 
 NSView* Sidebar::NativeView() const {

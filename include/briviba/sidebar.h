@@ -43,12 +43,14 @@ class Sidebar {
   void SetBackTabAction(TabAction action);
   void SetForwardTabAction(TabAction action);
   void SetReloadTabAction(TabAction action);
+  void SetTranslateVideoAction(Action action);
   void SetEditTabAddressAction(TabAction action);
   void SetClearTabCookiesAction(TabAction action);
   void SetClearTabCachesAction(TabAction action);
   void SetDockPosition(DockPosition position);
   void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
   void SetFullscreenAppearance(bool fullscreen);
+  void SetTranslateVideoVisible(bool visible);
 
 #ifdef __OBJC__
   NSView* NativeView() const;
