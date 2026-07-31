@@ -656,6 +656,9 @@ class BrowserWindow::Impl {
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
     }
     tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
+    if (settings_manager_.TabDockPosition() != SettingsManager::SidebarDockPosition::kTop) {
+      settings_manager_.SetTabDockPosition(SettingsManager::SidebarDockPosition::kTop);
+    }
     traffic_light_stack_ = TrafficLightStack(window_control_bridge_);
 
     [content_view_ addSubview:chrome_background_];
@@ -729,6 +732,10 @@ class BrowserWindow::Impl {
   }
 
   void NewTab() { CreateNewTab(); }
+
+  void CloseActiveTab() { tab_manager_.CloseTab(tab_manager_.ActiveIndex()); }
+
+  void ReloadActiveTab() { tab_manager_.Reload(); }
 
  private:
   void CreateNewTab() {
@@ -1317,6 +1324,14 @@ void BrowserWindow::Show() {
 
 void BrowserWindow::CreateNewTab() {
   impl_->NewTab();
+}
+
+void BrowserWindow::CloseActiveTab() {
+  impl_->CloseActiveTab();
+}
+
+void BrowserWindow::ReloadActiveTab() {
+  impl_->ReloadActiveTab();
 }
 
 }  // namespace briviba

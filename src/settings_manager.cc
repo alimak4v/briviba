@@ -21,7 +21,7 @@ constexpr const char* kTabDockPositionKey = "tab_dock_position";
 constexpr const char* kSessionTabsKey = "session_tabs";
 constexpr const char* kSessionActiveTabKey = "session_active_tab";
 constexpr const char* kDefaultSearchEngine = "duckduckgo";
-constexpr const char* kDefaultTabDockPosition = "left";
+constexpr const char* kDefaultTabDockPosition = "top";
 
 class Statement {
  public:

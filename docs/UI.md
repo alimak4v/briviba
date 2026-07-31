@@ -12,6 +12,7 @@ Reference image:
 The first screen is a browser window with:
 
 - translucent macOS-style outer window;
+- a Safari-style top tab strip with Liquid Glass styling;
 - a left vertical Liquid Glass dock;
 - a content area starting to the right of the dock;
 - a floating top address field;
@@ -29,7 +30,7 @@ Required:
 - soft shadow;
 - native macOS traffic-light controls;
 - translucent or glass-like chrome;
-- no traditional top tab bar.
+- top tabs are allowed and should follow the Safari-style strip.
 
 The main content must occupy most of the window.
 
@@ -78,12 +79,11 @@ The computed color must remain subtle and compatible with macOS glass.
 
 ## 6. Content Layout
 
-The webpage content area begins below the floating controls and to the right of the dock.
+The webpage content area begins below the floating controls and below the top tab strip.
 
 Required:
 
 - no extra toolbars;
-- no top tabs;
 - no status bar unless required by macOS/WebKit behavior;
 - no persistent developer or debug UI.
 

@@ -459,6 +459,7 @@ constexpr CGFloat kDockContentTop = 18.0;
 constexpr CGFloat kDockContentBottom = 16.0;
 constexpr CGFloat kTopDockDocumentHeight = 50.0;
 constexpr CGFloat kTopDockInset = 10.0;
+constexpr CGFloat kTopDockLeadingInset = 76.0;
 constexpr CGFloat kNewTabGap = 10.0;
 constexpr CGFloat kSidebarEdgeWidth = 1.0;
 
@@ -754,13 +755,13 @@ CGFloat MeasureTextWidth(NSString* text, NSFont* font) {
 
 CGFloat HorizontalTabWidth(const Sidebar::TabState& tab, bool active) {
   NSString* title = TabDisplayTitle(tab);
-  NSFont* font = [NSFont systemFontOfSize:12.5
+  NSFont* font = [NSFont systemFontOfSize:11.0
                                    weight:active ? NSFontWeightSemibold : NSFontWeightMedium];
   const CGFloat text_width = MeasureTextWidth(title, font);
-  const CGFloat favicon_width = 16.0;
-  const CGFloat horizontal_padding = active ? 18.0 : 14.0;
+  const CGFloat favicon_width = 14.0;
+  const CGFloat horizontal_padding = active ? 14.0 : 10.0;
   const CGFloat width = text_width + favicon_width + horizontal_padding * 2.0 + 6.0;
-  return std::min<CGFloat>(340.0, std::max<CGFloat>(152.0, width));
+  return std::min<CGFloat>(280.0, std::max<CGFloat>(132.0, width));
 }
 
 NSImage* HorizontalTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
@@ -812,7 +813,7 @@ NSButton* HorizontalTabButton(size_t index, const Sidebar::TabState& tab, bool a
   [button setImage:HorizontalTabImage(tab, active, true)];
   [button setImagePosition:NSImageLeft];
   [button setImageScaling:NSImageScaleProportionallyDown];
-  [button setFont:[NSFont systemFontOfSize:12.5
+  [button setFont:[NSFont systemFontOfSize:11.0
                                      weight:active ? NSFontWeightSemibold : NSFontWeightMedium]];
   [button setAlignment:NSTextAlignmentLeft];
   [button setLineBreakMode:NSLineBreakByTruncatingTail];
@@ -1073,7 +1074,7 @@ class Sidebar::Impl {
     translate_video_button_ = IconButton(@"captions.bubble", @"Translate video");
     [translate_video_button_ setTarget:bridge_];
     [translate_video_button_ setAction:@selector(translateVideo:)];
-    [translate_video_button_ setHidden:YES];
+    [translate_video_button_ setHidden:NO];
     [control_stack_ addArrangedSubview:translate_video_button_];
     settings_button_ = IconButton(@"gearshape", @"Settings");
     [settings_button_ setTarget:bridge_];
@@ -1140,7 +1141,7 @@ class Sidebar::Impl {
       [[dock_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor] constant:-12.0],
       [[dock_view_ heightAnchor] constraintEqualToConstant:52.0],
       [[tab_scroll_view_ leadingAnchor] constraintEqualToAnchor:[dock_view_ leadingAnchor]
-                                                       constant:12.0],
+                       constant:kTopDockLeadingInset],
       [[tab_scroll_view_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor]],
       [[tab_scroll_view_ bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor]],
       [[tab_scroll_view_ trailingAnchor] constraintEqualToAnchor:[control_stack_ leadingAnchor]
@@ -1246,7 +1247,9 @@ class Sidebar::Impl {
   }
 
   void SetTranslateVideoVisible(bool visible) {
-    [translate_video_button_ setHidden:!visible];
+    [translate_video_button_ setHidden:NO];
+    [translate_video_button_ setEnabled:visible];
+    [translate_video_button_ setAlphaValue:visible ? 1.0 : 0.40];
   }
 
   NSView* NativeView() const { return view_; }
