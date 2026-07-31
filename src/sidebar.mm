@@ -702,6 +702,21 @@ NSImage* SiteTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
   return FallbackTabImage(FallbackTabLabel(tab), active, enabled);
 }
 
+NSImage* RawCachedFavicon(NSString* cache_key) {
+  NSImage* cached_image = [FaviconMemoryCache() objectForKey:cache_key];
+  if (cached_image != nil) {
+    return cached_image;
+  }
+
+  NSURL* file_url = FaviconCacheFileUrl(cache_key);
+  NSImage* disk_image = [[NSImage alloc] initWithContentsOfURL:file_url];
+  if (disk_image != nil) {
+    [FaviconMemoryCache() setObject:disk_image forKey:cache_key];
+    return disk_image;
+  }
+  return nil;
+}
+
 NSString* TabDisplayTitle(const Sidebar::TabState& tab) {
   if (!tab.title.empty()) {
     NSString* title = StringFromStdString(tab.title);
@@ -728,13 +743,54 @@ CGFloat MeasureTextWidth(NSString* text, NSFont* font) {
 
 CGFloat HorizontalTabWidth(const Sidebar::TabState& tab, bool active) {
   NSString* title = TabDisplayTitle(tab);
-  NSFont* font = [NSFont systemFontOfSize:13.0
+  NSFont* font = [NSFont systemFontOfSize:12.5
                                    weight:active ? NSFontWeightSemibold : NSFontWeightMedium];
   const CGFloat text_width = MeasureTextWidth(title, font);
-  const CGFloat favicon_width = 18.0;
-  const CGFloat horizontal_padding = active ? 20.0 : 16.0;
-  const CGFloat width = text_width + favicon_width + horizontal_padding * 2.0 + 8.0;
-  return std::min<CGFloat>(280.0, std::max<CGFloat>(144.0, width));
+  const CGFloat favicon_width = 16.0;
+  const CGFloat horizontal_padding = active ? 18.0 : 14.0;
+  const CGFloat width = text_width + favicon_width + horizontal_padding * 2.0 + 6.0;
+  return std::min<CGFloat>(340.0, std::max<CGFloat>(152.0, width));
+}
+
+NSImage* HorizontalTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
+  NSString* cache_key = HostFromUrl(tab.url);
+  if ([cache_key length] > 0) {
+    NSImage* favicon = RawCachedFavicon(cache_key);
+    if (favicon != nil) {
+      constexpr CGFloat kImageSize = 16.0;
+      NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(kImageSize, kImageSize)];
+      [image lockFocus];
+      [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
+      [favicon drawInRect:NSMakeRect(0.0, 0.0, kImageSize, kImageSize)
+                 fromRect:NSZeroRect
+                operation:NSCompositingOperationSourceOver
+                 fraction:1.0];
+      [image unlockFocus];
+      return image;
+    }
+  }
+
+  constexpr CGFloat kImageSize = 16.0;
+  NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(kImageSize, kImageSize)];
+  [image lockFocus];
+  NSBezierPath* circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0.0, 0.0, kImageSize, kImageSize)];
+  [[NSColor colorWithWhite:1.0 alpha:active ? 0.96 : 0.84] setFill];
+  [circle fill];
+  [[NSColor colorWithWhite:0.0 alpha:0.08] setStroke];
+  [circle setLineWidth:0.8];
+  [circle stroke];
+  NSString* label = [[FallbackTabLabel(tab) substringToIndex:1] uppercaseString];
+  NSDictionary* attributes = @{
+    NSFontAttributeName : [NSFont systemFontOfSize:10.0 weight:NSFontWeightSemibold],
+    NSForegroundColorAttributeName :
+        [NSColor colorWithWhite:0.12 alpha:enabled ? 0.70 : 0.40],
+  };
+  NSSize label_size = [label sizeWithAttributes:attributes];
+  [label drawAtPoint:NSMakePoint((kImageSize - label_size.width) / 2.0,
+                                 (kImageSize - label_size.height) / 2.0 - 0.5)
+      withAttributes:attributes];
+  [image unlockFocus];
+  return image;
 }
 
 NSButton* HorizontalTabButton(size_t index, const Sidebar::TabState& tab, bool active, bool enabled,
@@ -742,10 +798,10 @@ NSButton* HorizontalTabButton(size_t index, const Sidebar::TabState& tab, bool a
   NSButton* button = [NSButton buttonWithTitle:TabDisplayTitle(tab)
                                        target:enabled ? target : nil
                                        action:nil];
-  [button setImage:SiteTabImage(tab, active, true)];
+  [button setImage:HorizontalTabImage(tab, active, true)];
   [button setImagePosition:NSImageLeft];
   [button setImageScaling:NSImageScaleProportionallyDown];
-  [button setFont:[NSFont systemFontOfSize:13.0
+  [button setFont:[NSFont systemFontOfSize:12.5
                                      weight:active ? NSFontWeightSemibold : NSFontWeightMedium]];
   [button setAlignment:NSTextAlignmentLeft];
   [button setLineBreakMode:NSLineBreakByTruncatingTail];
@@ -766,7 +822,7 @@ NSButton* HorizontalTabButton(size_t index, const Sidebar::TabState& tab, bool a
   [[button layer] setShadowRadius:active ? 10.0 : 6.0];
   [[button layer] setShadowOffset:CGSizeMake(0.0, -1.5)];
   [[button widthAnchor] constraintEqualToConstant:HorizontalTabWidth(tab, active)].active = YES;
-  [[button heightAnchor] constraintEqualToConstant:34.0].active = YES;
+  [[button heightAnchor] constraintEqualToConstant:30.0].active = YES;
   [button setTag:static_cast<NSInteger>(index)];
   [button setEnabled:enabled];
   if (enabled) {
@@ -894,8 +950,8 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
 
   if (horizontal) {
     [constraints addObjectsFromArray:@[
-      [[tab_button leadingAnchor] constraintEqualToAnchor:[item leadingAnchor] constant:2.0],
-      [[tab_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:-2.0],
+      [[tab_button leadingAnchor] constraintEqualToAnchor:[item leadingAnchor] constant:1.0],
+      [[tab_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:-1.0],
       [[tab_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:0.0],
       [[tab_button bottomAnchor] constraintEqualToAnchor:[item bottomAnchor] constant:0.0],
     ]];
