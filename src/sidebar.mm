@@ -457,6 +457,8 @@ constexpr CGFloat kActiveTabButtonSize = 44.0;
 constexpr CGFloat kStackSpacing = 10.0;
 constexpr CGFloat kDockContentTop = 18.0;
 constexpr CGFloat kDockContentBottom = 16.0;
+constexpr CGFloat kTopDockDocumentHeight = 50.0;
+constexpr CGFloat kTopDockInset = 10.0;
 constexpr CGFloat kNewTabGap = 10.0;
 constexpr CGFloat kSidebarEdgeWidth = 1.0;
 
@@ -1210,6 +1212,7 @@ class Sidebar::Impl {
     [control_stack_ setOrientation:horizontal ? NSUserInterfaceLayoutOrientationHorizontal
                                               : NSUserInterfaceLayoutOrientationVertical];
     [control_stack_ setAlignment:horizontal ? NSLayoutAttributeCenterY : NSLayoutAttributeCenterX];
+    [dock_top_constraint_ setConstant:horizontal ? kTopDockInset : kDockTop];
     [NSLayoutConstraint activateConstraints:horizontal ? horizontal_constraints_
                                                        : vertical_constraints_];
     UpdateTabDocumentFrame(tab_stack_.arrangedSubviews.count);
@@ -1250,8 +1253,11 @@ class Sidebar::Impl {
 
  private:
   void ApplyAppearance() {
+    [dock_top_constraint_ setConstant:fullscreen_ ? kFullscreenDockTop
+                                                  : (dock_position_ == Sidebar::DockPosition::kTop
+                                                         ? kTopDockInset
+                                                         : kDockTop)];
     if (fullscreen_) {
-      [dock_top_constraint_ setConstant:kFullscreenDockTop];
       [sidebar_blur_view_ setHidden:YES];
       [[sidebar_tint_view_ layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:1.0]
                                                          CGColor]];
@@ -1264,7 +1270,6 @@ class Sidebar::Impl {
       return;
     }
 
-    [dock_top_constraint_ setConstant:kDockTop];
     [sidebar_blur_view_ setHidden:NO];
     [dock_view_ setMaterial:NSVisualEffectMaterialPopover];
     [[sidebar_tint_view_ layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:0.50]
@@ -1280,7 +1285,7 @@ class Sidebar::Impl {
     const BOOL horizontal = dock_position_ == Sidebar::DockPosition::kTop;
     if (horizontal) {
       const CGFloat width = horizontal_document_width_ + kStackSpacing + kIconButtonSize;
-      [tab_document_view_ setFrame:NSMakeRect(0.0, 0.0, width, 1.0)];
+      [tab_document_view_ setFrame:NSMakeRect(0.0, 0.0, width, kTopDockDocumentHeight)];
       return;
     }
 
