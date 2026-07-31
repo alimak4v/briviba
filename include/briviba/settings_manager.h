@@ -11,6 +11,8 @@ namespace briviba {
 
 class SettingsManager {
  public:
+  enum class SidebarDockPosition { kLeft, kTop };
+
   explicit SettingsManager(std::filesystem::path database_path);
   ~SettingsManager();
 
@@ -24,6 +26,8 @@ class SettingsManager {
   bool ToggleStartWithSecureMode();
   std::string DefaultSearchEngine() const;
   void SetDefaultSearchEngine(const std::string& engine_id);
+  SidebarDockPosition TabDockPosition() const;
+  void SetTabDockPosition(SidebarDockPosition position);
   std::vector<std::string> SessionTabUrls() const;
   size_t SessionActiveTabIndex() const;
   void SetSessionState(const std::vector<std::string>& urls, size_t active_index);

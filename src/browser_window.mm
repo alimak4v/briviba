@@ -83,6 +83,7 @@
  @public
   std::function<void(bool)> set_start_secure_action;
   std::function<void(const std::string&)> set_search_engine_action;
+  std::function<void(briviba::SettingsManager::SidebarDockPosition)> set_tab_dock_position_action;
   std::function<void()> clear_all_cookies_action;
   std::function<void()> clear_all_caches_action;
   std::function<void()> show_cookies_action;
@@ -90,6 +91,7 @@
 }
 - (void)toggleStartSecure:(id)sender;
 - (void)changeSearchEngine:(id)sender;
+- (void)changeTabDockPosition:(id)sender;
 - (void)clearAllCookies:(id)sender;
 - (void)clearAllCaches:(id)sender;
 - (void)showCookies:(id)sender;
@@ -116,6 +118,17 @@
   }
   const char* utf8 = [(NSString*)represented_object UTF8String];
   set_search_engine_action(utf8 == nullptr ? std::string() : std::string(utf8));
+}
+
+- (void)changeTabDockPosition:(id)sender {
+  if (!set_tab_dock_position_action || ![sender respondsToSelector:@selector(selectedSegment)]) {
+    return;
+  }
+
+  NSInteger selected_segment = [sender selectedSegment];
+  set_tab_dock_position_action(selected_segment == 1
+                                   ? briviba::SettingsManager::SidebarDockPosition::kTop
+                                   : briviba::SettingsManager::SidebarDockPosition::kLeft);
 }
 
 - (void)clearAllCookies:(id)sender {
@@ -161,6 +174,7 @@ constexpr CGFloat kWebViewLeading = 96.0;
 constexpr CGFloat kWebViewTop = 0.0;
 constexpr CGFloat kWebViewTrailing = 0.0;
 constexpr CGFloat kWebViewBottom = 0.0;
+constexpr CGFloat kTopDockHeight = 72.0;
 constexpr CGFloat kFullscreenSidebarTop = -kWebViewTop;
 constexpr double kColorEpsilon = 0.002;
 
@@ -281,6 +295,11 @@ class BrowserWindow::Impl {
       settings_manager_.SetDefaultSearchEngine(engine_id);
       tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
     };
+    settings_bridge_->set_tab_dock_position_action =
+        [this](SettingsManager::SidebarDockPosition position) {
+          settings_manager_.SetTabDockPosition(position);
+          ApplySidebarDockPosition();
+        };
     settings_bridge_->clear_all_cookies_action = [this] { ClearAllCookiesAndSiteState(); };
     settings_bridge_->clear_all_caches_action = [this] { ClearAllCaches(); };
     settings_bridge_->show_cookies_action = [this] { RefreshCookieListText(); };
@@ -352,7 +371,7 @@ class BrowserWindow::Impl {
     sidebar_top_constraint_ =
         [[sidebar_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
                                                           constant:kSidebarTop];
-    [NSLayoutConstraint activateConstraints:@[
+    left_layout_constraints_ = @[
       [[chrome_background_ leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
                                                          constant:kWebViewLeading],
       [[chrome_background_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]],
@@ -376,7 +395,33 @@ class BrowserWindow::Impl {
                                                                     kWebViewLeading / 2.0],
       [[traffic_light_stack_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
                                                        constant:23.0],
-    ]];
+    ];
+    top_layout_constraints_ = @[
+      [[chrome_background_ leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]],
+      [[chrome_background_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]],
+      [[chrome_background_ trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]],
+      [[chrome_background_ heightAnchor] constraintEqualToConstant:kWebViewTop],
+      [[tab_manager_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]],
+      [[tab_manager_.NativeView() topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
+                                                            constant:kTopDockHeight],
+      [[tab_manager_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
+                                                                 constant:-kWebViewTrailing],
+      [[tab_manager_.NativeView() bottomAnchor] constraintEqualToAnchor:[content_view_ bottomAnchor]
+                                                               constant:-kWebViewBottom],
+      [[sidebar_.NativeView() leadingAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
+                                                            constant:kSidebarLeading],
+      sidebar_top_constraint_,
+      [[sidebar_.NativeView() trailingAnchor] constraintEqualToAnchor:[content_view_ trailingAnchor]
+                                                             constant:-kSidebarBottom],
+      [[sidebar_.NativeView() heightAnchor] constraintEqualToConstant:kTopDockHeight],
+      [[traffic_light_stack_ centerXAnchor] constraintEqualToAnchor:[content_view_ leadingAnchor]
+                                                           constant:kSidebarLeading +
+                                                                    kWebViewLeading / 2.0],
+      [[traffic_light_stack_ topAnchor] constraintEqualToAnchor:[content_view_ topAnchor]
+                                                       constant:23.0],
+    ];
+    [NSLayoutConstraint activateConstraints:left_layout_constraints_];
+    ApplySidebarDockPosition();
     cookie_manager_.WhenReady([this] { LoadInitialSession(); });
   }
 
@@ -566,6 +611,17 @@ class BrowserWindow::Impl {
     [window_ toggleFullScreen:nil];
   }
 
+  void ApplySidebarDockPosition() {
+    const bool top_mode =
+        settings_manager_.TabDockPosition() == SettingsManager::SidebarDockPosition::kTop;
+    [NSLayoutConstraint deactivateConstraints:left_layout_constraints_];
+    [NSLayoutConstraint deactivateConstraints:top_layout_constraints_];
+    sidebar_.SetDockPosition(top_mode ? Sidebar::DockPosition::kTop : Sidebar::DockPosition::kLeft);
+    [NSLayoutConstraint activateConstraints:top_mode ? top_layout_constraints_
+                                                     : left_layout_constraints_];
+    [[content_view_ superview] layoutSubtreeIfNeeded];
+  }
+
   void EnterNativeFullscreenChrome() {
     [traffic_light_stack_ setHidden:YES];
     [[window_ standardWindowButton:NSWindowCloseButton] setHidden:NO];
@@ -663,6 +719,25 @@ class BrowserWindow::Impl {
     [privacy_label setTextColor:[NSColor secondaryLabelColor]];
     [privacy_label setTranslatesAutoresizingMaskIntoConstraints:NO];
 
+    NSTextField* tabs_label = [NSTextField labelWithString:@"Tabs"];
+    [tabs_label setFont:[NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold]];
+    [tabs_label setTextColor:[NSColor secondaryLabelColor]];
+    [tabs_label setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    NSSegmentedControl* tab_dock_control = [[NSSegmentedControl alloc] initWithFrame:NSZeroRect];
+    [tab_dock_control setSegmentCount:2];
+    [tab_dock_control setLabel:@"Left" forSegment:0];
+    [tab_dock_control setLabel:@"Top" forSegment:1];
+    [tab_dock_control setTrackingMode:NSSegmentSwitchTrackingSelectOne];
+    [tab_dock_control setTarget:settings_bridge_];
+    [tab_dock_control setAction:@selector(changeTabDockPosition:)];
+    [tab_dock_control setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [tab_dock_control setSelectedSegment:
+                          settings_manager_.TabDockPosition() ==
+                                  SettingsManager::SidebarDockPosition::kTop
+                              ? 1
+                              : 0];
+
     NSButton* start_secure_checkbox =
         [NSButton checkboxWithTitle:@"Start new sessions in Secure Mode"
                              target:settings_bridge_
@@ -699,6 +774,8 @@ class BrowserWindow::Impl {
     [general_view addSubview:search_label];
     [general_view addSubview:search_engine_popup];
     [general_view addSubview:privacy_label];
+    [general_view addSubview:tabs_label];
+    [general_view addSubview:tab_dock_control];
     [general_view addSubview:start_secure_checkbox];
     [general_view addSubview:start_secure_help];
     [general_view addSubview:storage_label];
@@ -753,8 +830,14 @@ class BrowserWindow::Impl {
       [[privacy_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
       [[privacy_label topAnchor] constraintEqualToAnchor:[search_engine_popup bottomAnchor]
                                                 constant:28.0],
+      [[tabs_label leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[tabs_label topAnchor] constraintEqualToAnchor:[privacy_label bottomAnchor]
+                                               constant:24.0],
+      [[tab_dock_control leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
+      [[tab_dock_control topAnchor] constraintEqualToAnchor:[tabs_label bottomAnchor]
+                                                   constant:10.0],
       [[start_secure_checkbox leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
-      [[start_secure_checkbox topAnchor] constraintEqualToAnchor:[privacy_label bottomAnchor]
+      [[start_secure_checkbox topAnchor] constraintEqualToAnchor:[tab_dock_control bottomAnchor]
                                                         constant:12.0],
       [[start_secure_help leadingAnchor] constraintEqualToAnchor:[title_label leadingAnchor]],
       [[start_secure_help topAnchor] constraintEqualToAnchor:[start_secure_checkbox bottomAnchor]
@@ -849,6 +932,8 @@ class BrowserWindow::Impl {
   NSView* content_view_ = nil;
   NSView* chrome_background_ = nil;
   NSLayoutConstraint* sidebar_top_constraint_ = nil;
+  NSArray<NSLayoutConstraint*>* left_layout_constraints_ = nil;
+  NSArray<NSLayoutConstraint*>* top_layout_constraints_ = nil;
   NSStackView* traffic_light_stack_ = nil;
   BrivibaWindowControlBridge* window_control_bridge_ = nil;
   BrivibaSettingsBridge* settings_bridge_ = nil;

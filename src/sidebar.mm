@@ -831,10 +831,11 @@ NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, boo
   return item;
 }
 
-NSStackView* VerticalStack() {
+NSStackView* StackView(NSUserInterfaceLayoutOrientation orientation,
+                       NSLayoutAttribute alignment) {
   NSStackView* stack = [[NSStackView alloc] init];
-  [stack setOrientation:NSUserInterfaceLayoutOrientationVertical];
-  [stack setAlignment:NSLayoutAttributeCenterX];
+  [stack setOrientation:orientation];
+  [stack setAlignment:alignment];
   [stack setDistribution:NSStackViewDistributionGravityAreas];
   [stack setSpacing:kStackSpacing];
   [stack setTranslatesAutoresizingMaskIntoConstraints:NO];
@@ -891,8 +892,8 @@ class Sidebar::Impl {
     tab_document_view_ = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, kDockWidth, 1.0)];
     [tab_document_view_ setWantsLayer:YES];
 
-    top_stack_ = VerticalStack();
-    tab_stack_ = VerticalStack();
+    top_stack_ = StackView(NSUserInterfaceLayoutOrientationVertical, NSLayoutAttributeCenterX);
+    tab_stack_ = StackView(NSUserInterfaceLayoutOrientationVertical, NSLayoutAttributeCenterX);
     [top_stack_ addArrangedSubview:tab_stack_];
 
     tab_scroll_view_ = [[NSScrollView alloc] initWithFrame:NSZeroRect];
@@ -911,22 +912,21 @@ class Sidebar::Impl {
     [top_stack_ addArrangedSubview:new_tab_button_];
     [tab_document_view_ addSubview:top_stack_];
 
-    NSStackView* bottom_stack = VerticalStack();
+    control_stack_ = StackView(NSUserInterfaceLayoutOrientationVertical, NSLayoutAttributeCenterX);
     settings_button_ = IconButton(@"gearshape", @"Settings");
     [settings_button_ setTarget:bridge_];
     [settings_button_ setAction:@selector(openSettings:)];
-    [bottom_stack addArrangedSubview:settings_button_];
+    [control_stack_ addArrangedSubview:settings_button_];
 
     [view_ addSubview:sidebar_blur_view_];
     [view_ addSubview:sidebar_tint_view_];
     [view_ addSubview:sidebar_edge_view_];
     [view_ addSubview:dock_view_];
     [dock_view_ addSubview:tab_scroll_view_];
-    [dock_view_ addSubview:bottom_stack];
+    [dock_view_ addSubview:control_stack_];
     dock_top_constraint_ =
         [[dock_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor] constant:kDockTop];
-
-    [NSLayoutConstraint activateConstraints:@[
+    vertical_constraints_ = @[
       [[view_ widthAnchor] constraintEqualToConstant:kSidebarWidth],
       [[sidebar_blur_view_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
       [[sidebar_blur_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor]],
@@ -948,16 +948,51 @@ class Sidebar::Impl {
       [[tab_scroll_view_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor]
                                                    constant:kDockContentTop],
       [[tab_scroll_view_ trailingAnchor] constraintEqualToAnchor:[dock_view_ trailingAnchor]],
-      [[tab_scroll_view_ bottomAnchor] constraintEqualToAnchor:[bottom_stack topAnchor]
+      [[tab_scroll_view_ bottomAnchor] constraintEqualToAnchor:[control_stack_ topAnchor]
                                                       constant:-kNewTabGap],
-      [[bottom_stack bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor]
+      [[control_stack_ bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor]
                                                   constant:-kDockContentBottom],
-      [[bottom_stack centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
+      [[control_stack_ centerXAnchor] constraintEqualToAnchor:[dock_view_ centerXAnchor]],
       [[top_stack_ topAnchor] constraintEqualToAnchor:[tab_document_view_ topAnchor]],
       [[top_stack_ centerXAnchor] constraintEqualToAnchor:[tab_document_view_ centerXAnchor]],
       [[top_stack_ bottomAnchor] constraintEqualToAnchor:[tab_document_view_ bottomAnchor]],
-    ]];
+    ];
+
+    horizontal_constraints_ = @[
+      [[view_ heightAnchor] constraintEqualToConstant:72.0],
+      [[sidebar_blur_view_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
+      [[sidebar_blur_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor]],
+      [[sidebar_blur_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
+      [[sidebar_blur_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor]],
+      [[sidebar_tint_view_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
+      [[sidebar_tint_view_ topAnchor] constraintEqualToAnchor:[view_ topAnchor]],
+      [[sidebar_tint_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
+      [[sidebar_tint_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor]],
+      [[sidebar_edge_view_ heightAnchor] constraintEqualToConstant:kSidebarEdgeWidth],
+      [[sidebar_edge_view_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]],
+      [[sidebar_edge_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor]],
+      [[sidebar_edge_view_ bottomAnchor] constraintEqualToAnchor:[view_ bottomAnchor]],
+      [[dock_view_ leadingAnchor] constraintEqualToAnchor:[view_ leadingAnchor]
+                                                 constant:12.0],
+      dock_top_constraint_,
+      [[dock_view_ trailingAnchor] constraintEqualToAnchor:[view_ trailingAnchor] constant:-12.0],
+      [[dock_view_ heightAnchor] constraintEqualToConstant:52.0],
+      [[tab_scroll_view_ leadingAnchor] constraintEqualToAnchor:[dock_view_ leadingAnchor]
+                                                       constant:12.0],
+      [[tab_scroll_view_ topAnchor] constraintEqualToAnchor:[dock_view_ topAnchor]],
+      [[tab_scroll_view_ bottomAnchor] constraintEqualToAnchor:[dock_view_ bottomAnchor]],
+      [[tab_scroll_view_ trailingAnchor] constraintEqualToAnchor:[control_stack_ leadingAnchor]
+                                                        constant:-12.0],
+      [[control_stack_ trailingAnchor] constraintEqualToAnchor:[dock_view_ trailingAnchor]
+                                                      constant:-12.0],
+      [[control_stack_ centerYAnchor] constraintEqualToAnchor:[dock_view_ centerYAnchor]],
+      [[top_stack_ leadingAnchor] constraintEqualToAnchor:[tab_document_view_ leadingAnchor]],
+      [[top_stack_ centerYAnchor] constraintEqualToAnchor:[tab_document_view_ centerYAnchor]],
+      [[top_stack_ trailingAnchor] constraintEqualToAnchor:[tab_document_view_ trailingAnchor]],
+    ];
+    [NSLayoutConstraint activateConstraints:vertical_constraints_];
     ApplyAppearance();
+    SetDockPosition(DockPosition::kLeft);
   }
 
   void SetNewTabAction(Action action) { bridge_->new_tab_action = std::move(action); }
@@ -990,6 +1025,30 @@ class Sidebar::Impl {
 
   void SetClearTabCachesAction(TabAction action) {
     bridge_->clear_tab_caches_action = std::move(action);
+  }
+
+  void SetDockPosition(Sidebar::DockPosition position) {
+    if (dock_position_ == position) {
+      return;
+    }
+    dock_position_ = position;
+    [NSLayoutConstraint deactivateConstraints:vertical_constraints_];
+    [NSLayoutConstraint deactivateConstraints:horizontal_constraints_];
+    const BOOL horizontal = dock_position_ == Sidebar::DockPosition::kTop;
+    [tab_scroll_view_ setHasHorizontalScroller:horizontal];
+    [tab_scroll_view_ setHasVerticalScroller:!horizontal];
+    [tab_stack_ setOrientation:horizontal ? NSUserInterfaceLayoutOrientationHorizontal
+                                          : NSUserInterfaceLayoutOrientationVertical];
+    [tab_stack_ setAlignment:horizontal ? NSLayoutAttributeCenterY : NSLayoutAttributeCenterX];
+    [top_stack_ setOrientation:horizontal ? NSUserInterfaceLayoutOrientationHorizontal
+                                          : NSUserInterfaceLayoutOrientationVertical];
+    [top_stack_ setAlignment:horizontal ? NSLayoutAttributeCenterY : NSLayoutAttributeCenterX];
+    [control_stack_ setOrientation:horizontal ? NSUserInterfaceLayoutOrientationHorizontal
+                                              : NSUserInterfaceLayoutOrientationVertical];
+    [control_stack_ setAlignment:horizontal ? NSLayoutAttributeCenterY : NSLayoutAttributeCenterX];
+    [NSLayoutConstraint activateConstraints:horizontal ? horizontal_constraints_
+                                                       : vertical_constraints_];
+    UpdateTabDocumentFrame(tab_stack_.arrangedSubviews.count);
   }
 
   void SetTabState(const std::vector<Sidebar::TabState>& tabs, size_t active_index) {
@@ -1044,6 +1103,17 @@ class Sidebar::Impl {
   }
 
   void UpdateTabDocumentFrame(size_t tab_count) {
+    const BOOL horizontal = dock_position_ == Sidebar::DockPosition::kTop;
+    if (horizontal) {
+      const CGFloat width =
+          (tab_count == 0 ? 0.0
+                          : tab_count * kActiveTabButtonSize +
+                                (tab_count - 1) * kStackSpacing) +
+          kStackSpacing + kIconButtonSize;
+      [tab_document_view_ setFrame:NSMakeRect(0.0, 0.0, width, 1.0)];
+      return;
+    }
+
     const CGFloat height =
         (tab_count == 0 ? 0.0
                         : tab_count * kActiveTabButtonSize +
@@ -1062,9 +1132,13 @@ class Sidebar::Impl {
   NSView* tab_document_view_ = nil;
   NSStackView* top_stack_ = nil;
   NSStackView* tab_stack_ = nil;
+  NSStackView* control_stack_ = nil;
+  NSArray<NSLayoutConstraint*>* vertical_constraints_ = nil;
+  NSArray<NSLayoutConstraint*>* horizontal_constraints_ = nil;
   NSButton* new_tab_button_ = nil;
   NSButton* settings_button_ = nil;
   NSView* view_ = nil;
+  Sidebar::DockPosition dock_position_ = Sidebar::DockPosition::kLeft;
   bool fullscreen_ = false;
 };
 
@@ -1114,6 +1188,10 @@ void Sidebar::SetClearTabCookiesAction(TabAction action) {
 
 void Sidebar::SetClearTabCachesAction(TabAction action) {
   impl_->SetClearTabCachesAction(std::move(action));
+}
+
+void Sidebar::SetDockPosition(DockPosition position) {
+  impl_->SetDockPosition(position);
 }
 
 void Sidebar::SetTabState(const std::vector<TabState>& tabs, size_t active_index) {

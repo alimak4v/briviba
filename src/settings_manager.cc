@@ -17,9 +17,11 @@ namespace {
 
 constexpr const char* kStartWithSecureModeKey = "start_with_secure_mode";
 constexpr const char* kDefaultSearchEngineKey = "default_search_engine";
+constexpr const char* kTabDockPositionKey = "tab_dock_position";
 constexpr const char* kSessionTabsKey = "session_tabs";
 constexpr const char* kSessionActiveTabKey = "session_active_tab";
 constexpr const char* kDefaultSearchEngine = "duckduckgo";
+constexpr const char* kDefaultTabDockPosition = "left";
 
 class Statement {
  public:
@@ -111,6 +113,19 @@ class SettingsManager::Impl {
       return;
     }
     SetStringValue(kDefaultSearchEngineKey, engine_id);
+  }
+
+  SettingsManager::SidebarDockPosition TabDockPosition() const {
+    const std::string value = StringValue(kTabDockPositionKey, kDefaultTabDockPosition);
+    if (value == "top") {
+      return SettingsManager::SidebarDockPosition::kTop;
+    }
+    return SettingsManager::SidebarDockPosition::kLeft;
+  }
+
+  void SetTabDockPosition(SettingsManager::SidebarDockPosition position) {
+    SetStringValue(kTabDockPositionKey,
+                   position == SettingsManager::SidebarDockPosition::kTop ? "top" : "left");
   }
 
   std::vector<std::string> SessionTabUrls() const {
@@ -259,6 +274,14 @@ std::string SettingsManager::DefaultSearchEngine() const {
 
 void SettingsManager::SetDefaultSearchEngine(const std::string& engine_id) {
   impl_->SetDefaultSearchEngine(engine_id);
+}
+
+SettingsManager::SidebarDockPosition SettingsManager::TabDockPosition() const {
+  return impl_->TabDockPosition();
+}
+
+void SettingsManager::SetTabDockPosition(SidebarDockPosition position) {
+  impl_->SetTabDockPosition(position);
 }
 
 std::vector<std::string> SettingsManager::SessionTabUrls() const {

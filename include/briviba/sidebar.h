@@ -15,6 +15,8 @@ namespace briviba {
 
 class Sidebar {
  public:
+  enum class DockPosition { kLeft, kTop };
+
   struct TabState {
     std::string url;
     std::string title;
@@ -44,6 +46,7 @@ class Sidebar {
   void SetEditTabAddressAction(TabAction action);
   void SetClearTabCookiesAction(TabAction action);
   void SetClearTabCachesAction(TabAction action);
+  void SetDockPosition(DockPosition position);
   void SetTabState(const std::vector<TabState>& tabs, size_t active_index);
   void SetFullscreenAppearance(bool fullscreen);
 
