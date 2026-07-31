@@ -399,6 +399,100 @@ NSString* PageActivityScriptSource() {
        "})();";
 }
 
+NSString* VideoTranslateButtonScriptSource() {
+  return
+      @"(() => {"
+       "if (window.__brivibaVideoTranslateInstalled) return;"
+       "window.__brivibaVideoTranslateInstalled = true;"
+       "const supportedHost = (() => {"
+       "  const host = location.hostname.toLowerCase();"
+       "  return host.endsWith('youtube.com') || host.endsWith('youtu.be') ||"
+       "         host.endsWith('vimeo.com') || host.endsWith('vk.com') ||"
+       "         host.endsWith('vkvideo.ru') || host.endsWith('dzen.ru') ||"
+       "         host.endsWith('rutube.ru') || host.endsWith('ok.ru') ||"
+       "         host.endsWith('coursera.org');"
+       "})();"
+       "const hasVideo = () => {"
+       "  try {"
+       "    return Array.from(document.querySelectorAll('video')).some((video) => {"
+       "      const rect = video.getBoundingClientRect();"
+       "      return rect.width >= 120 && rect.height >= 90;"
+       "    });"
+       "  } catch (_) { return false; }"
+       "};"
+       "const buttonId = '__brivibaYandexVideoTranslateButton';"
+       "const removeButton = () => {"
+       "  const existing = document.getElementById(buttonId);"
+       "  if (existing) existing.remove();"
+       "};"
+       "const ensureButton = () => {"
+       "  if (!supportedHost || !hasVideo()) {"
+       "    removeButton();"
+       "    return;"
+       "  }"
+       "  if (document.getElementById(buttonId)) return;"
+       "  const button = document.createElement('button');"
+       "  button.id = buttonId;"
+       "  button.type = 'button';"
+       "  button.textContent = 'Перевести и озвучить';"
+       "  button.setAttribute('aria-label', 'Перевести и озвучить видео через Яндекс');"
+       "  button.style.cssText = ["
+       "    'position: fixed',"
+       "    'right: 20px',"
+       "    'bottom: 20px',"
+       "    'z-index: 2147483647',"
+       "    'display: inline-flex',"
+       "    'align-items: center',"
+       "    'gap: 8px',"
+       "    'padding: 0 16px',"
+       "    'height: 42px',"
+       "    'border-radius: 999px',"
+       "    'border: 1px solid rgba(17, 17, 17, 0.12)',"
+       "    'background: rgba(255, 255, 255, 0.96)',"
+       "    'color: rgb(18, 18, 18)',"
+       "    'font: 600 14px -apple-system, BlinkMacSystemFont, sans-serif',"
+       "    'letter-spacing: 0',"
+       "    'box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12)',"
+       "    'cursor: pointer',"
+       "    'backdrop-filter: blur(14px)',"
+       "    '-webkit-backdrop-filter: blur(14px)'"
+       "  ].join(';');"
+       "  button.addEventListener('mouseenter', () => {"
+       "    button.style.background = 'rgba(255, 255, 255, 1)';"
+       "  });"
+       "  button.addEventListener('mouseleave', () => {"
+       "    button.style.background = 'rgba(255, 255, 255, 0.96)';"
+       "  });"
+       "  button.addEventListener('click', () => {"
+       "    const url = 'https://browser.yandex.ru/c/video-translation';"
+       "    try {"
+       "      window.open(url, '_blank', 'noopener,noreferrer');"
+       "    } catch (_) {"
+       "      location.href = url;"
+       "    }"
+       "  });"
+       "  document.body.appendChild(button);"
+       "};"
+       "const scheduleEnsure = () => {"
+       "  try { window.requestAnimationFrame(ensureButton); } catch (_) { ensureButton(); }"
+       "};"
+       "if (document.readyState === 'loading') {"
+       "  document.addEventListener('DOMContentLoaded', scheduleEnsure, { once: true });"
+       "} else {"
+       "  scheduleEnsure();"
+       "}"
+       "try {"
+       "  const observer = new MutationObserver(scheduleEnsure);"
+       "  const startObserver = () => observer.observe(document.documentElement || document, {"
+       "    childList: true, subtree: true, attributes: true"
+       "  });"
+       "  if (document.documentElement) startObserver();"
+       "  else document.addEventListener('DOMContentLoaded', startObserver, { once: true });"
+       "} catch (_) {}"
+       "setInterval(scheduleEnsure, 3000);"
+       "})();";
+}
+
 }  // namespace
 
 class Tab::Impl {
@@ -576,6 +670,11 @@ class Tab::Impl {
                                injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                             forMainFrameOnly:NO];
     [user_content_controller addUserScript:activity_script];
+    WKUserScript* video_translate_script =
+        [[WKUserScript alloc] initWithSource:VideoTranslateButtonScriptSource()
+                               injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                            forMainFrameOnly:YES];
+    [user_content_controller addUserScript:video_translate_script];
     activity_handler_ = [[BrivibaActivityHandler alloc] init];
     activity_handler_->tab = owner_;
     [user_content_controller addScriptMessageHandler:activity_handler_ name:@"brivibaActivity"];
