@@ -15,6 +15,8 @@ class BrowserWindow {
 
   void Show();
   void CreateNewTab();
+  void CloseActiveTab();
+  void ReloadActiveTab();
 
  private:
   class Impl;

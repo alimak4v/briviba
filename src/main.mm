@@ -36,14 +36,30 @@
   }
 }
 
+- (void)closeTab:(id)sender {
+  (void)sender;
+  if (window_manager_ != nullptr) {
+    window_manager_->CloseTabInActiveWindow();
+  }
+}
+
+- (void)reloadPage:(id)sender {
+  (void)sender;
+  if (window_manager_ != nullptr) {
+    window_manager_->ReloadPageInActiveWindow();
+  }
+}
+
 @end
 
 namespace {
 
-NSMenuItem* MenuItem(NSString* title, SEL action, NSString* key_equivalent) {
+NSMenuItem* MenuItem(NSString* title, SEL action, NSString* key_equivalent,
+                     NSEventModifierFlags modifiers = NSEventModifierFlagCommand) {
   NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
                                                 action:action
                                          keyEquivalent:key_equivalent];
+  [item setKeyEquivalentModifierMask:modifiers];
   return item;
 }
 
@@ -63,9 +79,18 @@ void ConfigureMainMenu() {
                                                    keyEquivalent:@""];
   [main_menu addItem:file_menu_item];
   NSMenu* file_menu = [[NSMenu alloc] initWithTitle:@"File"];
-  NSMenuItem* new_tab_item = MenuItem(@"New Tab", @selector(newTab:), @"n");
+  NSMenuItem* new_tab_item = MenuItem(@"New Tab", @selector(newTab:), @"t",
+                            NSEventModifierFlagCommand);
   [new_tab_item setTarget:[NSApp delegate]];
   [file_menu addItem:new_tab_item];
+  NSMenuItem* reload_item = MenuItem(@"Reload Page", @selector(reloadPage:), @"r",
+                           NSEventModifierFlagCommand);
+  [reload_item setTarget:[NSApp delegate]];
+  [file_menu addItem:reload_item];
+  NSMenuItem* close_tab_item = MenuItem(@"Close Tab", @selector(closeTab:), @"w",
+                             NSEventModifierFlagCommand);
+  [close_tab_item setTarget:[NSApp delegate]];
+  [file_menu addItem:close_tab_item];
   [file_menu_item setSubmenu:file_menu];
 
   NSMenuItem* edit_menu_item = [[NSMenuItem alloc] initWithTitle:@"Edit"

@@ -22,4 +22,18 @@ void WindowManager::CreateTabInActiveWindow() {
   windows_.back()->CreateNewTab();
 }
 
+void WindowManager::CloseTabInActiveWindow() {
+  if (windows_.empty()) {
+    return;
+  }
+  windows_.back()->CloseActiveTab();
+}
+
+void WindowManager::ReloadPageInActiveWindow() {
+  if (windows_.empty()) {
+    return;
+  }
+  windows_.back()->ReloadActiveTab();
+}
+
 }  // namespace briviba

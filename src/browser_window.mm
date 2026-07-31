@@ -289,6 +289,12 @@ bool ShouldShowVideoTranslateButton(const std::string& url) {
          path_text.find("/shorts") != std::string::npos;
 }
 
+bool LooksLikeVideoTranslationScript(const std::string& script) {
+  return script.find("// ==UserScript==") != std::string::npos &&
+         script.find("VOT") != std::string::npos &&
+         script.find("voice-over-translation") != std::string::npos;
+}
+
 NSString* VideoTranslationShimSource() {
   return
       @"(() => {"
@@ -335,47 +341,206 @@ NSString* VideoTranslationShimSource() {
        "window.GM_notification = window.GM_notification || ((details) => {"
        "  try { console.log(details); } catch (_) {}"
        "});"
-       "window.GM_xmlhttpRequest = window.GM_xmlhttpRequest || ((options) => {"
-       "  const controller = new AbortController();"
-       "  const headers = new Headers(options.headers || {});"
-       "  fetch(options.url, {"
-       "    method: options.method || 'GET',"
-       "    headers,"
-       "    body: options.data,"
-       "    signal: controller.signal,"
-       "    credentials: 'include',"
-       "  }).then(async (response) => {"
-       "    const responseType = options.responseType || 'text';"
-       "    let payload = null;"
-       "    if (responseType === 'blob') {"
-       "      payload = await response.blob();"
-       "    } else if (responseType === 'arraybuffer') {"
-       "      payload = await response.arrayBuffer();"
-       "    } else {"
-       "      payload = await response.text();"
-       "    }"
-       "    const responseHeaders = Array.from(response.headers.entries())"
-       "      .map(([key, value]) => `${key}: ${value}`).join('\\n');"
-       "    if (typeof options.onload === 'function') {"
-       "      options.onload({"
-       "        response: payload,"
-       "        responseHeaders,"
-       "        status: response.status,"
-       "        statusText: response.statusText,"
-       "        finalUrl: response.url,"
-       "      });"
-       "    }"
-       "  }).catch((error) => {"
-       "    if (controller.signal.aborted) {"
-       "      if (typeof options.onabort === 'function') options.onabort(error);"
-       "      return;"
-       "    }"
-       "    if (typeof options.onerror === 'function') {"
-       "      options.onerror({ error: String(error), statusText: String(error) });"
-       "    }"
-       "  });"
-       "  return { abort: () => controller.abort() };"
-       "});"
+        "const gmRequestStore = window.__brivibaGmRequestStore || new Map();"
+        "window.__brivibaGmRequestStore = gmRequestStore;"
+        "window.__brivibaGmRequestSeq = window.__brivibaGmRequestSeq || 0;"
+        "const encodeArrayBuffer = (buffer) => {"
+        "  try {"
+        "    const bytes = new Uint8Array(buffer);"
+        "    let binary = '';"
+        "    const chunk = 0x8000;"
+        "    for (let i = 0; i < bytes.length; i += chunk) {"
+        "      const slice = bytes.subarray(i, i + chunk);"
+        "      binary += String.fromCharCode(...slice);"
+        "    }"
+        "    return btoa(binary);"
+        "  } catch (_) {"
+        "    return null;"
+        "  }"
+        "};"
+        "const encodeArrayBufferView = (view) => {"
+        "  try {"
+        "    const bytes = new Uint8Array(view.buffer, view.byteOffset || 0, view.byteLength || 0);"
+        "    return encodeArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));"
+        "  } catch (_) {"
+        "    return null;"
+        "  }"
+        "};"
+        "const decodeBase64ToArrayBuffer = (base64) => {"
+        "  const binary = atob(base64);"
+        "  const bytes = new Uint8Array(binary.length);"
+        "  for (let i = 0; i < binary.length; i += 1) {"
+        "    bytes[i] = binary.charCodeAt(i);"
+        "  }"
+        "  return bytes.buffer;"
+        "};"
+        "const finishWithLoadEnd = (options, details) => {"
+        "  if (typeof options.onloadend === 'function') {"
+        "    try { options.onloadend(details); } catch (_) {}"
+        "  }"
+        "};"
+        "window.__brivibaHandleGmXhrResponse = window.__brivibaHandleGmXhrResponse || ((result) => {"
+        "  if (!result || typeof result.id !== 'string') return;"
+        "  const request = gmRequestStore.get(result.id);"
+        "  if (!request) return;"
+        "  gmRequestStore.delete(result.id);"
+        "  const options = request.options;"
+        "  if (result.aborted) {"
+        "    const abortResult = { aborted: true };"
+        "    if (typeof options.onabort === 'function') options.onabort(abortResult);"
+        "    finishWithLoadEnd(options, abortResult);"
+        "    return;"
+        "  }"
+        "  if (result.timedOut) {"
+        "    const timeoutResult = { statusText: 'Timeout', timedOut: true };"
+        "    if (typeof options.ontimeout === 'function') options.ontimeout(timeoutResult);"
+        "    finishWithLoadEnd(options, timeoutResult);"
+        "    return;"
+        "  }"
+        "  if (result.error) {"
+        "    const errorResult = { error: String(result.error), statusText: String(result.error) };"
+        "    if (typeof options.onerror === 'function') options.onerror(errorResult);"
+        "    finishWithLoadEnd(options, errorResult);"
+        "    return;"
+        "  }"
+        "  const responseType = request.responseType;"
+        "  let payload = result.response || '';"
+        "  if (result.responseBase64 && (responseType === 'arraybuffer' || responseType === 'blob')) {"
+        "    const arrayBuffer = decodeBase64ToArrayBuffer(result.responseBase64);"
+        "    payload = responseType === 'blob' ? new Blob([arrayBuffer]) : arrayBuffer;"
+        "  }"
+        "  const loadResult = {"
+        "    response: payload,"
+        "    responseText: typeof payload === 'string' ? payload : '',"
+        "    responseHeaders: result.responseHeaders || '',"
+        "    status: Number(result.status || 0),"
+        "    statusText: result.statusText || '',"
+        "    finalUrl: result.finalUrl || options.url || ''"
+        "  };"
+        "  if (typeof options.onload === 'function') options.onload(loadResult);"
+        "  finishWithLoadEnd(options, loadResult);"
+        "});"
+        "window.GM_xmlhttpRequest = window.GM_xmlhttpRequest || ((options) => {"
+        "  const hasNativeBridge = !!(window.webkit && window.webkit.messageHandlers &&"
+        "    window.webkit.messageHandlers.brivibaGmXhr);"
+        "  const responseType = options.responseType || 'text';"
+        "  const timeoutMs = Number(options.timeout || 0);"
+        "  if (hasNativeBridge) {"
+        "    const requestId = `gm_${Date.now()}_${window.__brivibaGmRequestSeq += 1}`;"
+        "    const postNative = (requestBody) => {"
+        "      try {"
+        "        window.webkit.messageHandlers.brivibaGmXhr.postMessage({"
+        "          op: 'start',"
+        "          id: requestId,"
+        "          url: options.url || '',"
+        "          method: options.method || 'GET',"
+          "          headers: options.headers || {},"
+          "          responseType: responseType,"
+          "          timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 0,"
+          "          data: requestBody"
+          "        });"
+        "      } catch (error) {"
+        "        gmRequestStore.delete(requestId);"
+        "        const errorResult = { error: String(error), statusText: String(error) };"
+        "        if (typeof options.onerror === 'function') options.onerror(errorResult);"
+        "        finishWithLoadEnd(options, errorResult);"
+        "      }"
+        "    };"
+        "    gmRequestStore.set(requestId, { options, responseType });"
+        "    const requestBody = options.data;"
+        "    if (requestBody instanceof ArrayBuffer) {"
+        "      const encoded = encodeArrayBuffer(requestBody);"
+        "      postNative(encoded == null ? null : { __brivibaBase64: encoded });"
+        "    } else if (ArrayBuffer.isView(requestBody)) {"
+        "      const encoded = encodeArrayBufferView(requestBody);"
+        "      postNative(encoded == null ? null : { __brivibaBase64: encoded });"
+        "    } else if (typeof Blob !== 'undefined' && requestBody instanceof Blob) {"
+        "      requestBody.arrayBuffer()"
+        "        .then((buffer) => {"
+        "          const encoded = encodeArrayBuffer(buffer);"
+        "          postNative(encoded == null ? null : { __brivibaBase64: encoded });"
+        "        })"
+        "        .catch((error) => {"
+        "          gmRequestStore.delete(requestId);"
+        "          const errorResult = { error: String(error), statusText: String(error) };"
+        "          if (typeof options.onerror === 'function') options.onerror(errorResult);"
+        "          finishWithLoadEnd(options, errorResult);"
+        "        });"
+        "    } else if (typeof URLSearchParams !== 'undefined' && requestBody instanceof URLSearchParams) {"
+        "      postNative(String(requestBody));"
+        "    } else if (requestBody != null && typeof requestBody !== 'string') {"
+        "      try {"
+        "        postNative(JSON.stringify(requestBody));"
+        "      } catch (_) {"
+        "        postNative(String(requestBody));"
+        "      }"
+        "    } else {"
+        "      postNative(requestBody == null ? null : requestBody);"
+        "    }"
+        "    return {"
+        "      abort: () => {"
+        "        gmRequestStore.delete(requestId);"
+        "        try {"
+        "          window.webkit.messageHandlers.brivibaGmXhr.postMessage({ op: 'abort', id: requestId });"
+        "        } catch (_) {}"
+        "      }"
+        "    };"
+        "  }"
+      "  const controller = new AbortController();"
+        "  const timeoutId = Number.isFinite(timeoutMs) && timeoutMs > 0"
+        "    ? setTimeout(() => controller.abort('timeout'), timeoutMs)"
+        "    : null;"
+      "  const headers = new Headers(options.headers || {});"
+      "  fetch(options.url, {"
+      "    method: options.method || 'GET',"
+      "    headers,"
+      "    body: options.data,"
+      "    signal: controller.signal,"
+      "    credentials: 'include',"
+      "  }).then(async (response) => {"
+      "    let payload = null;"
+      "    if (responseType === 'blob') {"
+      "      payload = await response.blob();"
+      "    } else if (responseType === 'arraybuffer') {"
+      "      payload = await response.arrayBuffer();"
+      "    } else {"
+      "      payload = await response.text();"
+      "    }"
+      "    const responseHeaders = Array.from(response.headers.entries())"
+      "      .map(([key, value]) => `${key}: ${value}`).join('\\n');"
+      "    const loadResult = {"
+      "      response: payload,"
+      "      responseText: typeof payload === 'string' ? payload : '',"
+      "      responseHeaders,"
+      "      status: response.status,"
+      "      statusText: response.statusText,"
+      "      finalUrl: response.url,"
+      "    };"
+      "    if (typeof options.onload === 'function') options.onload(loadResult);"
+      "    finishWithLoadEnd(options, loadResult);"
+      "  }).catch((error) => {"
+      "    if (controller.signal.aborted) {"
+      "      const timeoutAbort = error === 'timeout';"
+      "      if (timeoutAbort) {"
+      "        const timeoutResult = { statusText: 'Timeout', timedOut: true };"
+      "        if (typeof options.ontimeout === 'function') options.ontimeout(timeoutResult);"
+      "        finishWithLoadEnd(options, timeoutResult);"
+      "      } else {"
+      "        if (typeof options.onabort === 'function') options.onabort(error);"
+      "        finishWithLoadEnd(options, { aborted: true });"
+      "      }"
+      "      return;"
+      "    }"
+      "    if (typeof options.onerror === 'function') {"
+      "      const errorResult = { error: String(error), statusText: String(error) };"
+      "      options.onerror(errorResult);"
+      "      finishWithLoadEnd(options, errorResult);"
+      "    }"
+      "  }).finally(() => {"
+      "    if (timeoutId !== null) clearTimeout(timeoutId);"
+      "  });"
+      "  return { abort: () => controller.abort() };"
+      "});"
        "})();";
 }
 
@@ -491,6 +656,9 @@ class BrowserWindow::Impl {
       tab_manager_.SetBrowsingMode(TabManager::BrowsingMode::kSecure);
     }
     tab_manager_.SetSearchEngine(settings_manager_.DefaultSearchEngine());
+    if (settings_manager_.TabDockPosition() != SettingsManager::SidebarDockPosition::kTop) {
+      settings_manager_.SetTabDockPosition(SettingsManager::SidebarDockPosition::kTop);
+    }
     traffic_light_stack_ = TrafficLightStack(window_control_bridge_);
 
     [content_view_ addSubview:chrome_background_];
@@ -564,6 +732,10 @@ class BrowserWindow::Impl {
   }
 
   void NewTab() { CreateNewTab(); }
+
+  void CloseActiveTab() { tab_manager_.CloseTab(tab_manager_.ActiveIndex()); }
+
+  void ReloadActiveTab() { tab_manager_.Reload(); }
 
  private:
   void CreateNewTab() {
@@ -744,13 +916,17 @@ class BrowserWindow::Impl {
                                        if (script != nil) {
                                          const char* utf8 = [script UTF8String];
                                          if (utf8 != nullptr) {
-                                           loaded_script = std::string(utf8);
+                                           std::string candidate_script(utf8);
+                                           if (LooksLikeVideoTranslationScript(candidate_script)) {
+                                             loaded_script = std::move(candidate_script);
+                                           }
                                          }
                                        }
                                      }
                                      dispatch_async(dispatch_get_main_queue(), [this, loaded_script] {
                                        video_translation_loading_ = false;
                                        if (loaded_script.empty()) {
+                                         video_translation_script_cache_.clear();
                                          ShowStorageDone(@"Could not load the video translation module.");
                                          return;
                                        }
@@ -772,9 +948,11 @@ class BrowserWindow::Impl {
     [wrapped_script appendString:shim];
     [wrapped_script appendString:@"\n(() => {"];
     [wrapped_script appendString:@"if (window.__brivibaVideoTranslationInstalled) return;"];
-    [wrapped_script appendString:@"window.__brivibaVideoTranslationInstalled = true;"];
     [wrapped_script appendString:@"\n"];
+    [wrapped_script appendString:@"try {"];
     [wrapped_script appendString:source];
+    [wrapped_script appendString:@"\nwindow.__brivibaVideoTranslationInstalled = true;"];
+    [wrapped_script appendString:@"} catch (error) { console.error(error); }"];
     [wrapped_script appendString:@"\n})();"];
     tab_manager_.EvaluateJavaScriptOnActiveTab(StringFromNSString(wrapped_script));
   }
@@ -1146,6 +1324,14 @@ void BrowserWindow::Show() {
 
 void BrowserWindow::CreateNewTab() {
   impl_->NewTab();
+}
+
+void BrowserWindow::CloseActiveTab() {
+  impl_->CloseActiveTab();
+}
+
+void BrowserWindow::ReloadActiveTab() {
+  impl_->ReloadActiveTab();
 }
 
 }  // namespace briviba

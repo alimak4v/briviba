@@ -18,6 +18,8 @@ class WindowManager {
 
   void OpenInitialWindow();
   void CreateTabInActiveWindow();
+  void CloseTabInActiveWindow();
+  void ReloadPageInActiveWindow();
 
  private:
   std::vector<std::unique_ptr<BrowserWindow>> windows_;

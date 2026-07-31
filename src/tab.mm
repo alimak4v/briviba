@@ -242,6 +242,244 @@
 
 @end
 
+@interface BrivibaGmXhrHandler : NSObject <WKScriptMessageHandler> {
+ @public
+  __weak WKWebView* web_view;
+  NSURLSession* session;
+  NSMutableDictionary<NSString*, NSURLSessionDataTask*>* tasks;
+}
+- (void)cancelAll;
+@end
+
+@implementation BrivibaGmXhrHandler
+
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+    tasks = [[NSMutableDictionary alloc] init];
+  }
+  return self;
+}
+
+- (void)postResult:(NSDictionary*)result {
+  WKWebView* target = web_view;
+  if (target == nil || result == nil) {
+    return;
+  }
+
+  NSError* error = nil;
+  NSData* json_data = [NSJSONSerialization dataWithJSONObject:result options:0 error:&error];
+  if (error != nil || json_data == nil) {
+    return;
+  }
+
+  NSString* json_text = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
+  if (json_text == nil) {
+    return;
+  }
+
+  NSString* script =
+      [NSString stringWithFormat:@"window.__brivibaHandleGmXhrResponse && window.__brivibaHandleGmXhrResponse(%@);",
+                                 json_text];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [target evaluateJavaScript:script completionHandler:nil];
+  });
+}
+
+- (void)abortRequestById:(NSString*)request_id {
+  if (request_id == nil || [request_id length] == 0) {
+    return;
+  }
+
+  NSURLSessionDataTask* task = nil;
+  @synchronized(self) {
+    task = tasks[request_id];
+    [tasks removeObjectForKey:request_id];
+  }
+  if (task != nil) {
+    [task cancel];
+  }
+  [self postResult:@{ @"id" : request_id, @"aborted" : @YES }];
+}
+
+- (void)startRequest:(NSDictionary*)payload {
+  NSString* request_id = [payload[@"id"] isKindOfClass:[NSString class]] ? payload[@"id"] : nil;
+  NSString* url_text = [payload[@"url"] isKindOfClass:[NSString class]] ? payload[@"url"] : nil;
+  if (request_id == nil || [request_id length] == 0 || url_text == nil || [url_text length] == 0) {
+    return;
+  }
+
+  NSURL* url = [NSURL URLWithString:url_text];
+  if (url == nil) {
+    [self postResult:@{ @"id" : request_id, @"error" : @"Invalid request URL." }];
+    return;
+  }
+
+  NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
+  NSString* method =
+      [payload[@"method"] isKindOfClass:[NSString class]] ? payload[@"method"] : @"GET";
+  [request setHTTPMethod:method];
+
+  NSDictionary* headers =
+      [payload[@"headers"] isKindOfClass:[NSDictionary class]] ? payload[@"headers"] : nil;
+  for (id key in headers) {
+    NSString* header_key = [key isKindOfClass:[NSString class]] ? key : nil;
+    NSString* header_value = [headers[key] isKindOfClass:[NSString class]] ? headers[key] : nil;
+    if (header_key != nil && header_value != nil) {
+      [request setValue:header_value forHTTPHeaderField:header_key];
+    }
+  }
+
+  id data_payload = payload[@"data"];
+  if ([data_payload isKindOfClass:[NSString class]]) {
+    NSData* body = [(NSString*)data_payload dataUsingEncoding:NSUTF8StringEncoding];
+    [request setHTTPBody:body];
+  } else if ([data_payload isKindOfClass:[NSDictionary class]]) {
+    NSString* base64 =
+        [data_payload[@"__brivibaBase64"] isKindOfClass:[NSString class]]
+            ? data_payload[@"__brivibaBase64"]
+            : nil;
+    if (base64 != nil) {
+      NSData* body = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+      if (body != nil) {
+        [request setHTTPBody:body];
+      }
+    }
+  }
+
+  NSString* response_type =
+      [payload[@"responseType"] isKindOfClass:[NSString class]] ? payload[@"responseType"] : @"text";
+  NSNumber* timeout_ms_number =
+      [payload[@"timeoutMs"] isKindOfClass:[NSNumber class]] ? payload[@"timeoutMs"] : nil;
+  if (timeout_ms_number != nil) {
+    const double timeout_ms = [timeout_ms_number doubleValue];
+    if (timeout_ms > 0.0) {
+      [request setTimeoutInterval:timeout_ms / 1000.0];
+    }
+  }
+
+  __weak BrivibaGmXhrHandler* weak_self = self;
+  NSURLSessionDataTask* task = [session dataTaskWithRequest:request
+                                          completionHandler:^(NSData* data,
+                                                              NSURLResponse* response,
+                                                              NSError* error) {
+                                            BrivibaGmXhrHandler* strong_self = weak_self;
+                                            if (strong_self == nil) {
+                                              return;
+                                            }
+
+                                            BOOL should_notify = NO;
+                                            @synchronized(strong_self) {
+                                              if (strong_self->tasks[request_id] != nil) {
+                                                [strong_self->tasks removeObjectForKey:request_id];
+                                                should_notify = YES;
+                                              }
+                                            }
+                                            if (!should_notify) {
+                                              return;
+                                            }
+
+                                            if (error != nil) {
+                                              if ([error domain] == NSURLErrorDomain &&
+                                                  [error code] == NSURLErrorTimedOut) {
+                                                [strong_self postResult:@{
+                                                  @"id" : request_id,
+                                                  @"timedOut" : @YES
+                                                }];
+                                                return;
+                                              }
+                                              NSString* error_text = [error localizedDescription];
+                                              if (error_text == nil) {
+                                                error_text = @"Request failed.";
+                                              }
+                                              [strong_self postResult:@{
+                                                @"id" : request_id,
+                                                @"error" : error_text
+                                              }];
+                                              return;
+                                            }
+
+                                            NSHTTPURLResponse* http_response =
+                                                [response isKindOfClass:[NSHTTPURLResponse class]]
+                                                    ? (NSHTTPURLResponse*)response
+                                                    : nil;
+                                            NSMutableDictionary* result = [@{
+                                              @"id" : request_id,
+                                              @"status" : @(http_response == nil ? 0 : [http_response statusCode]),
+                                              @"statusText" :
+                                                  http_response == nil ? @"" : [NSHTTPURLResponse localizedStringForStatusCode:[http_response statusCode]],
+                                              @"finalUrl" :
+                                                  response.URL.absoluteString == nil ? @"" : response.URL.absoluteString
+                                            } mutableCopy];
+
+                                            if (http_response != nil) {
+                                              NSMutableArray<NSString*>* lines = [[NSMutableArray alloc] init];
+                                              NSDictionary* response_headers = [http_response allHeaderFields];
+                                              for (id key in response_headers) {
+                                                NSString* line = [NSString stringWithFormat:@"%@: %@", key,
+                                                                                             response_headers[key]];
+                                                [lines addObject:line];
+                                              }
+                                              result[@"responseHeaders"] = [lines componentsJoinedByString:@"\n"];
+                                            }
+
+                                            if ([response_type isEqualToString:@"arraybuffer"] ||
+                                                [response_type isEqualToString:@"blob"]) {
+                                              NSString* encoded = [data base64EncodedStringWithOptions:0];
+                                              result[@"responseBase64"] = encoded == nil ? @"" : encoded;
+                                            } else {
+                                              NSString* text =
+                                                  [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                                              if (text != nil) {
+                                                result[@"response"] = text;
+                                              } else {
+                                                NSString* encoded = [data base64EncodedStringWithOptions:0];
+                                                result[@"responseBase64"] = encoded == nil ? @"" : encoded;
+                                              }
+                                            }
+
+                                            [strong_self postResult:result];
+                                          }];
+
+  @synchronized(self) {
+    tasks[request_id] = task;
+  }
+  [task resume];
+}
+
+- (void)cancelAll {
+  NSArray<NSURLSessionDataTask*>* active_tasks = nil;
+  @synchronized(self) {
+    active_tasks = [tasks allValues];
+    [tasks removeAllObjects];
+  }
+  for (NSURLSessionDataTask* task in active_tasks) {
+    [task cancel];
+  }
+}
+
+- (void)userContentController:(WKUserContentController*)userContentController
+      didReceiveScriptMessage:(WKScriptMessage*)message {
+  (void)userContentController;
+  if (![message.body isKindOfClass:[NSDictionary class]]) {
+    return;
+  }
+
+  NSDictionary* payload = (NSDictionary*)message.body;
+  NSString* op = [payload[@"op"] isKindOfClass:[NSString class]] ? payload[@"op"] : @"";
+  NSString* request_id = [payload[@"id"] isKindOfClass:[NSString class]] ? payload[@"id"] : nil;
+  if ([op isEqualToString:@"abort"]) {
+    [self abortRequestById:request_id];
+    return;
+  }
+  if ([op isEqualToString:@"start"]) {
+    [self startRequest:payload];
+  }
+}
+
+@end
+
 namespace briviba {
 namespace {
 
@@ -592,11 +830,14 @@ class Tab::Impl {
     activity_handler_ = [[BrivibaActivityHandler alloc] init];
     activity_handler_->tab = owner_;
     [user_content_controller addScriptMessageHandler:activity_handler_ name:@"brivibaActivity"];
+    gm_xhr_handler_ = [[BrivibaGmXhrHandler alloc] init];
+    [user_content_controller addScriptMessageHandler:gm_xhr_handler_ name:@"brivibaGmXhr"];
     [configuration setUserContentController:user_content_controller];
     if (website_data_store_ != nil) {
       [configuration setWebsiteDataStore:website_data_store_];
     }
     web_view_ = [[BrivibaWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    gm_xhr_handler_->web_view = web_view_;
     [web_view_ setCustomUserAgent:SafariLikeUserAgent()];
     navigation_delegate_ = [[BrivibaNavigationDelegate alloc] init];
     navigation_delegate_->tab = owner_;
@@ -633,6 +874,12 @@ class Tab::Impl {
       activity_handler_->tab = nullptr;
       activity_handler_ = nil;
     }
+    if (web_view_ != nil && gm_xhr_handler_ != nil) {
+      [[web_view_ configuration].userContentController removeScriptMessageHandlerForName:@"brivibaGmXhr"];
+      [gm_xhr_handler_ cancelAll];
+      gm_xhr_handler_->web_view = nil;
+      gm_xhr_handler_ = nil;
+    }
   }
 
   Tab* owner_;
@@ -645,6 +892,7 @@ class Tab::Impl {
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
   BrivibaActivityHandler* activity_handler_ = nil;
+  BrivibaGmXhrHandler* gm_xhr_handler_ = nil;
   WKWebView* web_view_ = nil;
   double last_page_activity_seconds_ = 0.0;
 };
