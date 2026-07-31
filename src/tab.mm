@@ -4,6 +4,7 @@
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import <objc/message.h>
 
 #include <chrono>
 #include <cctype>
@@ -320,6 +321,10 @@ void ConfigureWebView(WKWebViewConfiguration* configuration) {
     [[configuration preferences] setElementFullscreenEnabled:YES];
   }
   [configuration setMediaTypesRequiringUserActionForPlayback:WKAudiovisualMediaTypeNone];
+  SEL pip_selector = NSSelectorFromString(@"setAllowsPictureInPictureMediaPlayback:");
+  if ([configuration respondsToSelector:pip_selector]) {
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(configuration, pip_selector, YES);
+  }
 }
 
 double MonotonicSeconds() {
