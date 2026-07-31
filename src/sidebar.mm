@@ -702,6 +702,80 @@ NSImage* SiteTabImage(const Sidebar::TabState& tab, bool active, bool enabled) {
   return FallbackTabImage(FallbackTabLabel(tab), active, enabled);
 }
 
+NSString* TabDisplayTitle(const Sidebar::TabState& tab) {
+  if (!tab.title.empty()) {
+    NSString* title = StringFromStdString(tab.title);
+    if ([title length] > 0) {
+      return title;
+    }
+  }
+
+  NSString* host = HostFromUrl(tab.url);
+  if ([host length] > 0) {
+    return host;
+  }
+
+  return @"New Tab";
+}
+
+CGFloat MeasureTextWidth(NSString* text, NSFont* font) {
+  if (text == nil || [text length] == 0 || font == nil) {
+    return 0.0;
+  }
+  NSDictionary* attributes = @{ NSFontAttributeName : font };
+  return std::ceil([text sizeWithAttributes:attributes].width);
+}
+
+CGFloat HorizontalTabWidth(const Sidebar::TabState& tab, bool active) {
+  NSString* title = TabDisplayTitle(tab);
+  NSFont* font = [NSFont systemFontOfSize:13.0
+                                   weight:active ? NSFontWeightSemibold : NSFontWeightMedium];
+  const CGFloat text_width = MeasureTextWidth(title, font);
+  const CGFloat favicon_width = 18.0;
+  const CGFloat horizontal_padding = active ? 20.0 : 16.0;
+  const CGFloat width = text_width + favicon_width + horizontal_padding * 2.0 + 8.0;
+  return std::min<CGFloat>(280.0, std::max<CGFloat>(144.0, width));
+}
+
+NSButton* HorizontalTabButton(size_t index, const Sidebar::TabState& tab, bool active, bool enabled,
+                              id target) {
+  NSButton* button = [NSButton buttonWithTitle:TabDisplayTitle(tab)
+                                       target:enabled ? target : nil
+                                       action:nil];
+  [button setImage:SiteTabImage(tab, active, true)];
+  [button setImagePosition:NSImageLeft];
+  [button setImageScaling:NSImageScaleProportionallyDown];
+  [button setFont:[NSFont systemFontOfSize:13.0
+                                     weight:active ? NSFontWeightSemibold : NSFontWeightMedium]];
+  [button setAlignment:NSTextAlignmentLeft];
+  [button setLineBreakMode:NSLineBreakByTruncatingTail];
+  [button setBordered:NO];
+  [button setBezelStyle:NSBezelStyleRegularSquare];
+  [button setFocusRingType:NSFocusRingTypeNone];
+  [button setTranslatesAutoresizingMaskIntoConstraints:NO];
+  [button setWantsLayer:YES];
+  [[button layer] setCornerRadius:active ? 15.0 : 14.0];
+  [[button layer] setMasksToBounds:NO];
+  [[button layer] setBackgroundColor:[[NSColor colorWithWhite:1.0 alpha:active ? 0.82 : 0.62]
+                                         CGColor]];
+  [[button layer] setBorderColor:[[NSColor colorWithWhite:0.0 alpha:active ? 0.08 : 0.05]
+                                     CGColor]];
+  [[button layer] setBorderWidth:0.5];
+  [[button layer] setShadowColor:[[NSColor blackColor] CGColor]];
+  [[button layer] setShadowOpacity:active ? 0.09F : 0.05F];
+  [[button layer] setShadowRadius:active ? 10.0 : 6.0];
+  [[button layer] setShadowOffset:CGSizeMake(0.0, -1.5)];
+  [[button widthAnchor] constraintEqualToConstant:HorizontalTabWidth(tab, active)].active = YES;
+  [[button heightAnchor] constraintEqualToConstant:34.0].active = YES;
+  [button setTag:static_cast<NSInteger>(index)];
+  [button setEnabled:enabled];
+  if (enabled) {
+    [button setTarget:target];
+    [button setAction:@selector(selectTab:)];
+  }
+  return button;
+}
+
 NSButton* IconButton(NSString* symbol_name, NSString* accessibility_label) {
   NSImage* image = [NSImage imageWithSystemSymbolName:symbol_name
                              accessibilityDescription:accessibility_label];
@@ -794,27 +868,43 @@ NSButton* CloseTabButton(size_t index, id target) {
 }
 
 NSView* SiteTabItem(size_t index, const Sidebar::TabState& tab, bool active, bool close_enabled,
-                   id target) {
+                   BOOL horizontal, id target) {
   BrivibaSidebarTabItemView* item = [[BrivibaSidebarTabItemView alloc] initWithFrame:NSZeroRect];
   [item setCloseEnabled:close_enabled ? YES : NO];
   [item setActionTarget:target];
   [item setTabIndex:static_cast<NSInteger>(index)];
   [item setTranslatesAutoresizingMaskIntoConstraints:NO];
-  NSButton* tab_button = SiteTabButton(index, tab, active, target);
   NSString* domain = HostFromUrl(tab.url);
   NSString* title = tab.title.empty() ? domain : StringFromStdString(tab.title);
   [item setHoverTitle:title];
   [item setHoverDomain:domain];
+
+  NSButton* tab_button = horizontal ? HorizontalTabButton(index, tab, active, true, target)
+                                    : SiteTabButton(index, tab, active, target);
   [tab_button setMenu:BrivibaSidebarTabContextMenu(static_cast<NSInteger>(index),
                                                   close_enabled ? YES : NO, target)];
   [item addSubview:tab_button];
 
+  CGFloat item_width = horizontal ? HorizontalTabWidth(tab, active) : kActiveTabButtonSize;
+  CGFloat item_height = horizontal ? 34.0 : kActiveTabButtonSize;
   NSMutableArray<NSLayoutConstraint*>* constraints = [NSMutableArray arrayWithArray:@[
-    [[item widthAnchor] constraintEqualToConstant:kActiveTabButtonSize],
-    [[item heightAnchor] constraintEqualToConstant:kActiveTabButtonSize],
-    [[tab_button centerXAnchor] constraintEqualToAnchor:[item centerXAnchor]],
-    [[tab_button centerYAnchor] constraintEqualToAnchor:[item centerYAnchor]],
+    [[item widthAnchor] constraintEqualToConstant:item_width],
+    [[item heightAnchor] constraintEqualToConstant:item_height],
   ]];
+
+  if (horizontal) {
+    [constraints addObjectsFromArray:@[
+      [[tab_button leadingAnchor] constraintEqualToAnchor:[item leadingAnchor] constant:2.0],
+      [[tab_button trailingAnchor] constraintEqualToAnchor:[item trailingAnchor] constant:-2.0],
+      [[tab_button topAnchor] constraintEqualToAnchor:[item topAnchor] constant:0.0],
+      [[tab_button bottomAnchor] constraintEqualToAnchor:[item bottomAnchor] constant:0.0],
+    ]];
+  } else {
+    [constraints addObjectsFromArray:@[
+      [[tab_button centerXAnchor] constraintEqualToAnchor:[item centerXAnchor]],
+      [[tab_button centerYAnchor] constraintEqualToAnchor:[item centerYAnchor]],
+    ]];
+  }
 
   if (close_enabled) {
     NSButton* close_button = CloseTabButton(index, target);
@@ -1057,9 +1147,15 @@ class Sidebar::Impl {
       [subview removeFromSuperview];
     }
 
+    horizontal_document_width_ = 0.0;
     for (size_t index = 0; index < tabs.size(); ++index) {
+      const BOOL horizontal = dock_position_ == Sidebar::DockPosition::kTop;
+      horizontal_document_width_ += HorizontalTabWidth(tabs[index], index == active_index);
+      if (index + 1 < tabs.size()) {
+        horizontal_document_width_ += kStackSpacing;
+      }
       [tab_stack_ addArrangedSubview:SiteTabItem(index, tabs[index], index == active_index,
-                                                tabs.size() > 1, bridge_)];
+                                                tabs.size() > 1, horizontal, bridge_)];
     }
     UpdateTabDocumentFrame(tabs.size());
   }
@@ -1105,11 +1201,7 @@ class Sidebar::Impl {
   void UpdateTabDocumentFrame(size_t tab_count) {
     const BOOL horizontal = dock_position_ == Sidebar::DockPosition::kTop;
     if (horizontal) {
-      const CGFloat width =
-          (tab_count == 0 ? 0.0
-                          : tab_count * kActiveTabButtonSize +
-                                (tab_count - 1) * kStackSpacing) +
-          kStackSpacing + kIconButtonSize;
+      const CGFloat width = horizontal_document_width_ + kStackSpacing + kIconButtonSize;
       [tab_document_view_ setFrame:NSMakeRect(0.0, 0.0, width, 1.0)];
       return;
     }
@@ -1140,6 +1232,7 @@ class Sidebar::Impl {
   NSView* view_ = nil;
   Sidebar::DockPosition dock_position_ = Sidebar::DockPosition::kLeft;
   bool fullscreen_ = false;
+  CGFloat horizontal_document_width_ = 0.0;
 };
 
 Sidebar::Sidebar() : impl_(std::make_unique<Impl>()) {}
