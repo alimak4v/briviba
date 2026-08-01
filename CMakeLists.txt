@@ -29,7 +29,9 @@ add_executable(
   src/tab_manager.mm
   src/toolbar.mm
   src/window_manager.cc
-  resources/BrivibaIcon.icns)
+  resources/BrivibaIcon.icns
+  resources/video_translation_relay.js
+  resources/video_translation_shim.js)
 
 target_include_directories(Briviba PRIVATE include)
 
@@ -53,7 +55,20 @@ set_target_properties(
 
 set_source_files_properties(resources/BrivibaIcon.icns PROPERTIES MACOSX_PACKAGE_LOCATION
                                                                   Resources)
+set_source_files_properties(resources/video_translation_shim.js PROPERTIES MACOSX_PACKAGE_LOCATION
+                                                                       Resources)
+set_source_files_properties(resources/video_translation_relay.js PROPERTIES MACOSX_PACKAGE_LOCATION
+                                                                        Resources)
 
 set_source_files_properties(src/main.mm src/browser_window.mm src/cookie_manager.mm
                             src/download_manager.mm src/sidebar.mm src/tab.mm src/tab_manager.mm
                             src/toolbar.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+
+enable_testing()
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+  add_test(NAME video_translation_bridge
+           COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/video_translation_bridge_test.js")
+  add_test(NAME video_translation_relay
+           COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/video_translation_relay_test.js")
+endif()

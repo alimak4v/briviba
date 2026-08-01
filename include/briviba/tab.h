@@ -43,6 +43,7 @@ class Tab {
   bool ShouldStayLoaded() const;
   void MarkPageActivity();
   void ResetPageActivity();
+  void ResetVideoTranslationBridge();
   void Unload();
   void ExitFullscreen();
   void GoBack();
@@ -52,6 +53,7 @@ class Tab {
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
   void SetOpenUrlInNewTabCallback(OpenUrlInNewTabCallback callback);
+  void EnableVideoTranslationBridge();
   void EvaluateJavaScript(const std::string& script);
 
 #ifdef __OBJC__
