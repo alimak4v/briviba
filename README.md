@@ -47,6 +47,7 @@ The project experiments with browser chrome that feels native to macOS without c
 - Settings window with persisted privacy, default search engine options, redacted cookie viewing,
   and storage cleanup.
 - Default search engines: DuckDuckGo, Google, Bing, and Yandex.
+- On-page Yandex voice-over translation for supported video sites.
 - Context menu on sidebar tabs for Back, Forward, Reload, Edit Address, and Close Tab.
 - SQLite-backed settings, history, bookmarks, and downloads.
 - Safari-like WebKit user agent for better site compatibility.

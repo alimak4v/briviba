@@ -2,6 +2,7 @@
 #define BRIVIBA_TAB_MANAGER_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -57,7 +58,10 @@ class TabManager {
   void SetNavigationStateCallback(NavigationStateCallback callback);
   void SetPageColorCallback(PageColorCallback callback);
   void SetTabStateCallback(TabStateCallback callback);
-  void EvaluateJavaScriptOnActiveTab(const std::string& script);
+  std::uint64_t ActiveTabIdentity() const;
+  bool InjectVideoTranslationOnActiveTab(std::uint64_t tab_identity,
+                                         const std::string& expected_url,
+                                         const std::string& script);
 
 #ifdef __OBJC__
   NSView* NativeView() const;

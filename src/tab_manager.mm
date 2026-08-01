@@ -101,8 +101,9 @@ class TabManager::Impl {
   }
 
   void CreateTab() {
-    tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(std::string()), std::string(),
-                               std::string(), std::string(), std::string(), browsing_mode_, 0});
+    tabs_.push_back(ManagedTab{CreateTabForTopLevelSite(std::string()), next_tab_identity_++,
+                               std::string(), std::string(), std::string(), std::string(),
+                               browsing_mode_, 0});
     active_index_ = tabs_.size() - 1;
     MountActiveTab();
     EmitTabState();
@@ -131,8 +132,8 @@ class TabManager::Impl {
       const std::string top_level_site = TopLevelSiteFromInput(url, search_engine_id_);
       auto tab = CreateTabForTopLevelSite(top_level_site);
       tab->SetRestoredUrl(url);
-      tabs_.push_back(ManagedTab{std::move(tab), top_level_site, url, std::string(),
-                                 std::string(), browsing_mode_, 0});
+      tabs_.push_back(ManagedTab{std::move(tab), next_tab_identity_++, top_level_site, url,
+                                 std::string(), std::string(), browsing_mode_, 0});
     }
 
     active_index_ = std::min(active_index, tabs_.size() - 1);
@@ -232,11 +233,21 @@ class TabManager::Impl {
     }
   }
 
-  void EvaluateJavaScriptOnActiveTab(const std::string& script) {
+  std::uint64_t ActiveTabIdentity() const {
+    return tabs_.empty() || active_index_ >= tabs_.size() ? 0 : tabs_[active_index_].identity;
+  }
+
+  bool InjectVideoTranslationOnActiveTab(std::uint64_t tab_identity,
+                                         const std::string& expected_url,
+                                         const std::string& script) {
     Tab* tab = ActiveTab();
-    if (tab != nullptr) {
-      tab->EvaluateJavaScript(script);
+    if (tab == nullptr || tabs_[active_index_].identity != tab_identity ||
+        tab->CurrentUrl() != expected_url) {
+      return false;
     }
+    tab->EnableVideoTranslationBridge();
+    tab->EvaluateJavaScript(script);
+    return true;
   }
 
   void SetSearchEngine(const std::string& engine_id) {
@@ -278,6 +289,7 @@ class TabManager::Impl {
  private:
   struct ManagedTab {
     std::unique_ptr<Tab> tab;
+    std::uint64_t identity = 0;
     std::string top_level_site;
     std::string url;
     std::string title;
@@ -491,6 +503,7 @@ class TabManager::Impl {
   std::vector<ManagedTab> tabs_;
   size_t active_index_ = 0;
   size_t activation_sequence_ = 0;
+  std::uint64_t next_tab_identity_ = 1;
   NSView* container_view_ = nil;
 };
 
@@ -571,8 +584,14 @@ void TabManager::SetTabStateCallback(TabStateCallback callback) {
   impl_->SetTabStateCallback(std::move(callback));
 }
 
-void TabManager::EvaluateJavaScriptOnActiveTab(const std::string& script) {
-  impl_->EvaluateJavaScriptOnActiveTab(script);
+std::uint64_t TabManager::ActiveTabIdentity() const {
+  return impl_->ActiveTabIdentity();
+}
+
+bool TabManager::InjectVideoTranslationOnActiveTab(std::uint64_t tab_identity,
+                                                   const std::string& expected_url,
+                                                   const std::string& script) {
+  return impl_->InjectVideoTranslationOnActiveTab(tab_identity, expected_url, script);
 }
 
 NSView* TabManager::NativeView() const {

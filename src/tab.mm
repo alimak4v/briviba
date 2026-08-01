@@ -95,6 +95,7 @@
   (void)navigation;
   if (tab != nullptr) {
     tab->ResetPageActivity();
+    tab->ResetVideoTranslationBridge();
   }
   [self emitNavigationStateForWebView:webView];
 }
@@ -238,6 +239,396 @@
   if (tab != nullptr) {
     tab->MarkPageActivity();
   }
+}
+
+@end
+
+static BOOL BrivibaHostMatches(NSString* host, NSString* allowed_host) {
+  if ([host isEqualToString:allowed_host]) {
+    return YES;
+  }
+  return [host hasSuffix:[@"." stringByAppendingString:allowed_host]];
+}
+
+static NSString* BrivibaVideoTranslationRelaySource() {
+  NSURL* resource_url = [[NSBundle mainBundle] URLForResource:@"video_translation_relay"
+                                               withExtension:@"js"];
+  if (resource_url == nil) {
+    return nil;
+  }
+  NSError* error = nil;
+  NSString* source = [NSString stringWithContentsOfURL:resource_url
+                                              encoding:NSUTF8StringEncoding
+                                                 error:&error];
+  return error == nil ? source : nil;
+}
+
+static BOOL BrivibaIsAllowedVideoTranslationSource(NSURL* url) {
+  NSString* host = [[url host] lowercaseString];
+  if (host == nil) {
+    return NO;
+  }
+  for (NSString* allowed_host in @[
+         @"youtube.com", @"youtu.be", @"vimeo.com", @"vk.com", @"vkvideo.ru", @"dzen.ru",
+         @"rutube.ru", @"ok.ru", @"coursera.org"
+       ]) {
+    if (BrivibaHostMatches(host, allowed_host)) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+static BOOL BrivibaIsAllowedVideoTranslationDestination(NSURL* url) {
+  if (![[[url scheme] lowercaseString] isEqualToString:@"https"]) {
+    return NO;
+  }
+  NSString* host = [[url host] lowercaseString];
+  if (host == nil) {
+    return NO;
+  }
+  for (NSString* allowed_host in
+       @[ @"yandex.ru", @"yandex.net", @"googlevideo.com", @"youtube.com", @"vimeo.com" ]) {
+    if (BrivibaHostMatches(host, allowed_host)) {
+      return YES;
+    }
+  }
+  return [@[
+    @"vot.toil.cc", @"vot-worker.toil.cc", @"media-proxy.toil.cc", @"t2mc.toil.cc",
+    @"raw.githubusercontent.com", @"cloudflare-dns.com", @"rust-server-531j.onrender.com",
+    @"vot-worker.kload.workers.dev", @"translate-backend.transly.workers.dev"
+  ] containsObject:host];
+}
+
+static constexpr NSUInteger kVideoTranslationMaxConcurrentRequests = 8;
+static constexpr NSUInteger kVideoTranslationMaxRequestBytes = 32 * 1024 * 1024;
+static constexpr NSUInteger kVideoTranslationMaxResponseBytes = 64 * 1024 * 1024;
+static constexpr NSUInteger kVideoTranslationMaxRequestIdLength = 64;
+static constexpr NSTimeInterval kVideoTranslationNoTimeoutInterval = 7 * 24 * 60 * 60;
+
+@interface BrivibaVideoTranslationHandler
+    : NSObject <WKScriptMessageHandler, NSURLSessionDataDelegate, NSURLSessionTaskDelegate> {
+ @public
+  __weak WKWebView* web_view;
+  WKContentWorld* content_world;
+  NSString* pending_page_script;
+  BOOL relay_ready;
+  NSURLSession* session;
+  NSMutableDictionary<NSString*, NSURLSessionDataTask*>* tasks;
+  NSMutableDictionary<NSNumber*, NSString*>* request_ids;
+  NSMutableDictionary<NSNumber*, NSMutableData*>* response_bodies;
+  NSMutableDictionary<NSNumber*, NSHTTPURLResponse*>* responses;
+  NSMutableDictionary<NSNumber*, NSString*>* failure_messages;
+}
+- (void)sendPayload:(NSDictionary*)payload;
+- (void)invalidate;
+@end
+
+@implementation BrivibaVideoTranslationHandler
+
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    tasks = [[NSMutableDictionary alloc] init];
+    request_ids = [[NSMutableDictionary alloc] init];
+    response_bodies = [[NSMutableDictionary alloc] init];
+    responses = [[NSMutableDictionary alloc] init];
+    failure_messages = [[NSMutableDictionary alloc] init];
+    NSURLSessionConfiguration* configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    [configuration setHTTPShouldSetCookies:NO];
+    [configuration setHTTPCookieStorage:nil];
+    [configuration setURLCredentialStorage:nil];
+    [configuration setURLCache:nil];
+    [configuration setRequestCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
+    [configuration setHTTPMaximumConnectionsPerHost:kVideoTranslationMaxConcurrentRequests];
+    session = [NSURLSession sessionWithConfiguration:configuration
+                                            delegate:self
+                                       delegateQueue:[NSOperationQueue mainQueue]];
+  }
+  return self;
+}
+
+- (void)sendPayload:(NSDictionary*)payload {
+  WKWebView* current_web_view = web_view;
+  if (current_web_view == nil || content_world == nil ||
+      ![NSJSONSerialization isValidJSONObject:payload]) {
+    return;
+  }
+  NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+  NSString* json = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
+  if (json == nil) {
+    return;
+  }
+  NSString* script = [NSString
+      stringWithFormat:@"window.__brivibaVideoTranslationBridgeDidComplete(%@);", json];
+  if (@available(macOS 11.0, *)) {
+    [current_web_view evaluateJavaScript:script
+                                 inFrame:nil
+                          inContentWorld:content_world
+                       completionHandler:nil];
+  }
+}
+
+- (void)invalidate {
+  for (NSURLSessionDataTask* task in [tasks allValues]) {
+    [task cancel];
+  }
+  [tasks removeAllObjects];
+  [request_ids removeAllObjects];
+  [response_bodies removeAllObjects];
+  [responses removeAllObjects];
+  [failure_messages removeAllObjects];
+  [session invalidateAndCancel];
+  session = nil;
+  pending_page_script = nil;
+  relay_ready = NO;
+  content_world = nil;
+  web_view = nil;
+}
+
+- (void)userContentController:(WKUserContentController*)userContentController
+      didReceiveScriptMessage:(WKScriptMessage*)message {
+  (void)userContentController;
+  if (![[message body] isKindOfClass:[NSDictionary class]] || ![[message frameInfo] isMainFrame] ||
+      !BrivibaIsAllowedVideoTranslationSource([web_view URL])) {
+    return;
+  }
+
+  NSDictionary* body = (NSDictionary*)[message body];
+  NSString* request_id = [body[@"id"] isKindOfClass:[NSString class]] ? body[@"id"] : nil;
+  NSString* action = [body[@"action"] isKindOfClass:[NSString class]] ? body[@"action"] : nil;
+  if (request_id == nil || [request_id length] == 0 ||
+      [request_id length] > kVideoTranslationMaxRequestIdLength || action == nil) {
+    return;
+  }
+  if ([action isEqualToString:@"abort"]) {
+    NSURLSessionDataTask* task = tasks[request_id];
+    [tasks removeObjectForKey:request_id];
+    if (task != nil) {
+      NSNumber* task_key = @([task taskIdentifier]);
+      [request_ids removeObjectForKey:task_key];
+      [response_bodies removeObjectForKey:task_key];
+      [responses removeObjectForKey:task_key];
+      [failure_messages removeObjectForKey:task_key];
+      [task cancel];
+    }
+    return;
+  }
+  if (![action isEqualToString:@"request"]) {
+    return;
+  }
+  if (tasks[request_id] != nil) {
+    return;
+  }
+  if ([tasks count] >= kVideoTranslationMaxConcurrentRequests) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Too many concurrent video translation requests"
+    }];
+    return;
+  }
+
+  NSString* url_text = [body[@"url"] isKindOfClass:[NSString class]] ? body[@"url"] : nil;
+  if ([url_text length] == 0 || [url_text length] > 4096) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request URL is invalid or too long"
+    }];
+    return;
+  }
+  NSURL* url = url_text == nil ? nil : [NSURL URLWithString:url_text];
+  if (url == nil || !BrivibaIsAllowedVideoTranslationDestination(url)) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request URL is not allowed"
+    }];
+    return;
+  }
+
+  NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
+  NSString* method = [body[@"method"] isKindOfClass:[NSString class]] ? body[@"method"] : @"GET";
+  method = [method uppercaseString];
+  if (![@[ @"GET", @"HEAD", @"POST", @"PUT", @"DELETE" ] containsObject:method]) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request method is not allowed"
+    }];
+    return;
+  }
+  [request setHTTPMethod:method];
+  NSNumber* timeout = [body[@"timeout"] isKindOfClass:[NSNumber class]] ? body[@"timeout"] : nil;
+  if (timeout != nil) {
+    const double timeout_milliseconds = MAX([timeout doubleValue], 0.0);
+    [request setTimeoutInterval:timeout_milliseconds == 0.0
+                                    ? kVideoTranslationNoTimeoutInterval
+                                    : MIN(timeout_milliseconds / 1000.0, 300.0)];
+  }
+
+  NSDictionary* headers = [body[@"headers"] isKindOfClass:[NSDictionary class]] ? body[@"headers"] : nil;
+  if ([headers count] > 64) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request has too many headers"
+    }];
+    return;
+  }
+  for (id header_object in headers) {
+    if (![header_object isKindOfClass:[NSString class]]) {
+      continue;
+    }
+    NSString* header = (NSString*)header_object;
+    id value = headers[header];
+    NSString* lowercase_header = [header lowercaseString];
+    if (![value isKindOfClass:[NSString class]] || [header length] > 256 || [value length] > 8192 ||
+        [lowercase_header isEqualToString:@"host"] ||
+        [lowercase_header isEqualToString:@"content-length"] ||
+        [lowercase_header isEqualToString:@"cookie"]) {
+      continue;
+    }
+    [request setValue:(NSString*)value forHTTPHeaderField:header];
+  }
+
+  NSString* request_body = [body[@"body"] isKindOfClass:[NSString class]] ? body[@"body"] : @"";
+  NSString* body_encoding =
+      [body[@"bodyEncoding"] isKindOfClass:[NSString class]] ? body[@"bodyEncoding"] : @"none";
+  NSData* http_body = nil;
+  if ([body_encoding isEqualToString:@"base64"]) {
+    if ([request_body length] > (kVideoTranslationMaxRequestBytes * 4 / 3) + 4) {
+      http_body = nil;
+    } else {
+      http_body = [[NSData alloc] initWithBase64EncodedString:request_body options:0];
+    }
+  } else if ([body_encoding isEqualToString:@"utf8"]) {
+    http_body = [request_body dataUsingEncoding:NSUTF8StringEncoding];
+  } else if (![body_encoding isEqualToString:@"none"]) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request body encoding is not supported"
+    }];
+    return;
+  }
+  if ([http_body length] > kVideoTranslationMaxRequestBytes ||
+      ([body_encoding isEqualToString:@"base64"] && [request_body length] > 0 && http_body == nil)) {
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : @"network",
+      @"message" : @"Video translation request body is invalid or too large"
+    }];
+    return;
+  }
+  [request setHTTPBody:http_body];
+
+  NSURLSessionDataTask* task = [session dataTaskWithRequest:request];
+  tasks[request_id] = task;
+  NSNumber* task_key = @([task taskIdentifier]);
+  request_ids[task_key] = request_id;
+  response_bodies[task_key] = [NSMutableData data];
+  [task resume];
+}
+
+- (void)URLSession:(NSURLSession*)url_session
+                  task:(NSURLSessionTask*)task
+    willPerformHTTPRedirection:(NSHTTPURLResponse*)response
+                    newRequest:(NSURLRequest*)request
+             completionHandler:(void (^)(NSURLRequest* request))completion_handler {
+  (void)url_session;
+  (void)response;
+  if (BrivibaIsAllowedVideoTranslationDestination([request URL])) {
+    completion_handler(request);
+    return;
+  }
+  failure_messages[@([task taskIdentifier])] = @"Video translation redirect URL is not allowed";
+  completion_handler(nil);
+}
+
+- (void)URLSession:(NSURLSession*)url_session
+              dataTask:(NSURLSessionDataTask*)data_task
+    didReceiveResponse:(NSURLResponse*)response
+     completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completion_handler {
+  (void)url_session;
+  NSNumber* task_key = @([data_task taskIdentifier]);
+  const bool response_has_body =
+      ![[[[data_task originalRequest] HTTPMethod] uppercaseString] isEqualToString:@"HEAD"];
+  if (response_has_body &&
+      [response expectedContentLength] > static_cast<int64_t>(kVideoTranslationMaxResponseBytes)) {
+    failure_messages[task_key] = @"Video translation response is too large";
+    completion_handler(NSURLSessionResponseCancel);
+    return;
+  }
+  if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+    responses[task_key] = (NSHTTPURLResponse*)response;
+  }
+  completion_handler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession*)url_session
+          dataTask:(NSURLSessionDataTask*)data_task
+    didReceiveData:(NSData*)data {
+  (void)url_session;
+  NSNumber* task_key = @([data_task taskIdentifier]);
+  NSMutableData* response_body = response_bodies[task_key];
+  if (response_body == nil || failure_messages[task_key] != nil) {
+    return;
+  }
+  if ([response_body length] + [data length] > kVideoTranslationMaxResponseBytes) {
+    failure_messages[task_key] = @"Video translation response is too large";
+    [data_task cancel];
+    return;
+  }
+  [response_body appendData:data];
+}
+
+- (void)URLSession:(NSURLSession*)url_session
+              task:(NSURLSessionTask*)task
+    didCompleteWithError:(NSError*)error {
+  (void)url_session;
+  NSNumber* task_key = @([task taskIdentifier]);
+  NSString* request_id = request_ids[task_key];
+  if (request_id == nil || tasks[request_id] != task) {
+    return;
+  }
+  NSHTTPURLResponse* response = responses[task_key];
+  NSData* response_body = response_bodies[task_key] == nil ? [NSData data] : response_bodies[task_key];
+  NSString* failure_message = failure_messages[task_key];
+  [tasks removeObjectForKey:request_id];
+  [request_ids removeObjectForKey:task_key];
+  [response_bodies removeObjectForKey:task_key];
+  [responses removeObjectForKey:task_key];
+  [failure_messages removeObjectForKey:task_key];
+
+  if (failure_message != nil || error != nil) {
+    NSString* error_kind = [error code] == NSURLErrorTimedOut ? @"timeout" : @"network";
+    NSString* error_message = failure_message == nil ? [error localizedDescription] : failure_message;
+    [self sendPayload:@{
+      @"id" : request_id,
+      @"error" : error_kind,
+      @"message" : error_message == nil ? @"Network request failed" : error_message
+    }];
+    return;
+  }
+
+  NSMutableArray<NSString*>* response_header_lines = [NSMutableArray array];
+  for (id key in [response allHeaderFields]) {
+    [response_header_lines
+        addObject:[NSString stringWithFormat:@"%@: %@", key, [response allHeaderFields][key]]];
+  }
+  NSString* final_url = [[[task currentRequest] URL] absoluteString];
+  NSInteger status = [response statusCode];
+  NSString* status_text = [NSHTTPURLResponse localizedStringForStatusCode:status];
+  [self sendPayload:@{
+    @"id" : request_id,
+    @"status" : @(status),
+    @"statusText" : status_text == nil ? @"" : status_text,
+    @"finalUrl" : final_url == nil ? @"" : final_url,
+    @"responseHeaders" : [response_header_lines componentsJoinedByString:@"\n"],
+    @"body" : [response_body base64EncodedStringWithOptions:0]
+  }];
 }
 
 @end
@@ -406,7 +797,10 @@ class Tab::Impl {
   Impl(Tab* owner, WKWebsiteDataStore* website_data_store, DownloadManager& download_manager)
       : owner_(owner), website_data_store_(website_data_store), download_manager_(download_manager) {}
 
-  ~Impl() { DetachActivityHandler(); }
+  ~Impl() {
+    DetachVideoTranslationHandler();
+    DetachActivityHandler();
+  }
 
   bool LoadUrl(const std::string& text) {
     EnsureLoaded();
@@ -469,6 +863,8 @@ class Tab::Impl {
 
   void ResetPageActivity() { last_page_activity_seconds_ = 0.0; }
 
+  void ResetVideoTranslationBridge() { DetachVideoTranslationHandler(); }
+
   void Unload() {
     current_url_ = CurrentUrl();
     [web_view_ setNavigationDelegate:nil];
@@ -476,6 +872,7 @@ class Tab::Impl {
     if (navigation_delegate_ != nil) {
       navigation_delegate_->tab = nullptr;
     }
+    DetachVideoTranslationHandler();
     DetachActivityHandler();
     [web_view_ removeFromSuperview];
     navigation_delegate_ = nil;
@@ -541,7 +938,64 @@ class Tab::Impl {
     if (script_string == nil) {
       return;
     }
-    [web_view_ evaluateJavaScript:script_string completionHandler:nil];
+    if (video_translation_handler_ == nil || video_translation_handler_->content_world == nil) {
+      return;
+    }
+    if (@available(macOS 11.0, *)) {
+      if (!video_translation_handler_->relay_ready) {
+        video_translation_handler_->pending_page_script = script_string;
+        return;
+      }
+      [web_view_ evaluateJavaScript:script_string
+                           inFrame:nil
+                    inContentWorld:[WKContentWorld pageWorld]
+                 completionHandler:nil];
+    }
+  }
+
+  void EnableVideoTranslationBridge() {
+    EnsureLoaded();
+    if (web_view_ == nil || video_translation_handler_ != nil) {
+      return;
+    }
+    NSString* relay_source = BrivibaVideoTranslationRelaySource();
+    if (relay_source == nil) {
+      return;
+    }
+    video_translation_handler_ = [[BrivibaVideoTranslationHandler alloc] init];
+    video_translation_handler_->web_view = web_view_;
+    if (@available(macOS 11.0, *)) {
+      video_translation_handler_->content_world =
+          [WKContentWorld worldWithName:@"app.briviba.video-translation-relay"];
+      [[web_view_ configuration].userContentController
+          addScriptMessageHandler:video_translation_handler_
+                     contentWorld:video_translation_handler_->content_world
+                             name:@"brivibaVideoTranslation"];
+      __weak BrivibaVideoTranslationHandler* weak_handler = video_translation_handler_;
+      [web_view_ evaluateJavaScript:relay_source
+                           inFrame:nil
+                    inContentWorld:video_translation_handler_->content_world
+                 completionHandler:^(id result, NSError* error) {
+                   (void)result;
+                   BrivibaVideoTranslationHandler* handler = weak_handler;
+                   if (handler == nil || error != nil) {
+                     return;
+                   }
+                   WKWebView* current_web_view = handler->web_view;
+                   if (current_web_view == nil) {
+                     return;
+                   }
+                   handler->relay_ready = YES;
+                   NSString* pending_script = handler->pending_page_script;
+                   handler->pending_page_script = nil;
+                   if (pending_script != nil) {
+                     [current_web_view evaluateJavaScript:pending_script
+                                                  inFrame:nil
+                                           inContentWorld:[WKContentWorld pageWorld]
+                                        completionHandler:nil];
+                   }
+                 }];
+    }
   }
 
   void SetSearchEngine(const std::string& engine_id) { search_engine_id_ = engine_id; }
@@ -635,6 +1089,18 @@ class Tab::Impl {
     }
   }
 
+  void DetachVideoTranslationHandler() {
+    if (web_view_ != nil && video_translation_handler_ != nil) {
+      if (@available(macOS 11.0, *)) {
+        [[web_view_ configuration].userContentController
+            removeScriptMessageHandlerForName:@"brivibaVideoTranslation"
+                                  contentWorld:video_translation_handler_->content_world];
+      }
+      [video_translation_handler_ invalidate];
+      video_translation_handler_ = nil;
+    }
+  }
+
   Tab* owner_;
   WKWebsiteDataStore* website_data_store_ = nil;
   DownloadManager& download_manager_;
@@ -645,6 +1111,7 @@ class Tab::Impl {
   std::string current_url_;
   BrivibaNavigationDelegate* navigation_delegate_ = nil;
   BrivibaActivityHandler* activity_handler_ = nil;
+  BrivibaVideoTranslationHandler* video_translation_handler_ = nil;
   WKWebView* web_view_ = nil;
   double last_page_activity_seconds_ = 0.0;
 };
@@ -678,6 +1145,10 @@ void Tab::ResetPageActivity() {
   impl_->ResetPageActivity();
 }
 
+void Tab::ResetVideoTranslationBridge() {
+  impl_->ResetVideoTranslationBridge();
+}
+
 void Tab::Unload() {
   impl_->Unload();
 }
@@ -700,6 +1171,10 @@ void Tab::Reload() {
 
 void Tab::EvaluateJavaScript(const std::string& script) {
   impl_->EvaluateJavaScript(script);
+}
+
+void Tab::EnableVideoTranslationBridge() {
+  impl_->EnableVideoTranslationBridge();
 }
 
 void Tab::SetSearchEngine(const std::string& engine_id) {

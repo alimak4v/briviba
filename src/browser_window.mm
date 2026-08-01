@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -290,104 +291,49 @@ bool ShouldShowVideoTranslateButton(const std::string& url) {
 }
 
 NSString* VideoTranslationShimSource() {
-  return
-      @"(() => {"
-       "if (window.__brivibaVideoTranslationShimInstalled) return;"
-       "window.__brivibaVideoTranslationShimInstalled = true;"
-       "window.unsafeWindow = window.unsafeWindow || window;"
-       "window.GM_info = window.GM_info || {"
-       "  script: { name: 'Briviba Video Translation', version: 'local', author: 'Briviba' }"
-       "};"
-       "const storagePrefix = '__briviba_vot__';"
-       "const readValue = (name, fallback) => {"
-       "  try {"
-       "    const raw = window.localStorage.getItem(storagePrefix + name);"
-       "    return raw === null ? fallback : JSON.parse(raw);"
-       "  } catch (_) {"
-       "    return fallback;"
-       "  }"
-       "};"
-       "const writeValue = (name, value) => {"
-       "  try { window.localStorage.setItem(storagePrefix + name, JSON.stringify(value)); } catch (_) {}"
-       "};"
-       "const deleteValue = (name) => {"
-       "  try { window.localStorage.removeItem(storagePrefix + name); } catch (_) {}"
-       "};"
-       "const listValues = () => {"
-       "  try {"
-       "    return Object.keys(window.localStorage)"
-       "      .filter((key) => key.startsWith(storagePrefix))"
-       "      .map((key) => key.slice(storagePrefix.length));"
-       "  } catch (_) {"
-       "    return [];"
-       "  }"
-       "};"
-       "window.GM_addStyle = window.GM_addStyle || ((css) => {"
-       "  const style = document.createElement('style');"
-       "  style.textContent = css;"
-       "  (document.head || document.documentElement).appendChild(style);"
-       "  return style;"
-       "});"
-       "window.GM_getValue = window.GM_getValue || ((name, fallback) => readValue(name, fallback));"
-       "window.GM_setValue = window.GM_setValue || ((name, value) => writeValue(name, value));"
-       "window.GM_deleteValue = window.GM_deleteValue || ((name) => deleteValue(name));"
-       "window.GM_listValues = window.GM_listValues || (() => listValues());"
-       "window.GM_notification = window.GM_notification || ((details) => {"
-       "  try { console.log(details); } catch (_) {}"
-       "});"
-       "window.GM_xmlhttpRequest = window.GM_xmlhttpRequest || ((options) => {"
-       "  const controller = new AbortController();"
-       "  const headers = new Headers(options.headers || {});"
-       "  fetch(options.url, {"
-       "    method: options.method || 'GET',"
-       "    headers,"
-       "    body: options.data,"
-       "    signal: controller.signal,"
-       "    credentials: 'include',"
-       "  }).then(async (response) => {"
-       "    const responseType = options.responseType || 'text';"
-       "    let payload = null;"
-       "    if (responseType === 'blob') {"
-       "      payload = await response.blob();"
-       "    } else if (responseType === 'arraybuffer') {"
-       "      payload = await response.arrayBuffer();"
-       "    } else {"
-       "      payload = await response.text();"
-       "    }"
-       "    const responseHeaders = Array.from(response.headers.entries())"
-       "      .map(([key, value]) => `${key}: ${value}`).join('\\n');"
-       "    if (typeof options.onload === 'function') {"
-       "      options.onload({"
-       "        response: payload,"
-       "        responseHeaders,"
-       "        status: response.status,"
-       "        statusText: response.statusText,"
-       "        finalUrl: response.url,"
-       "      });"
-       "    }"
-       "  }).catch((error) => {"
-       "    if (controller.signal.aborted) {"
-       "      if (typeof options.onabort === 'function') options.onabort(error);"
-       "      return;"
-       "    }"
-       "    if (typeof options.onerror === 'function') {"
-       "      options.onerror({ error: String(error), statusText: String(error) });"
-       "    }"
-       "  });"
-       "  return { abort: () => controller.abort() };"
-       "});"
-       "})();";
+  NSURL* resource_url = [[NSBundle mainBundle] URLForResource:@"video_translation_shim"
+                                               withExtension:@"js"];
+  if (resource_url != nil) {
+    NSError* error = nil;
+    NSString* source = [NSString stringWithContentsOfURL:resource_url
+                                                encoding:NSUTF8StringEncoding
+                                                   error:&error];
+    if (source != nil && error == nil) {
+      return source;
+    }
+  }
+  return nil;
 }
 
 NSString* VideoTranslationSourceUrl() {
-  return @"https://gist.githubusercontent.com/RimuruDev/c9b2d31562a50afa5d8f6e2e21ef4698/raw/Tempermonkey.js";
+  return @"https://gist.githubusercontent.com/RimuruDev/c9b2d31562a50afa5d8f6e2e21ef4698/raw/"
+          "d89305f6587aa8f8c9fe679109fa6b74fe6c0c26/Tempermonkey.js";
 }
+
+bool IsValidVideoTranslationScriptResponse(NSData* data, NSURLResponse* response, NSError* error) {
+  if (error != nil || ![response isKindOfClass:[NSHTTPURLResponse class]] || [data length] == 0 ||
+      [data length] > 2 * 1024 * 1024) {
+    return false;
+  }
+  NSHTTPURLResponse* http_response = (NSHTTPURLResponse*)response;
+  if ([http_response statusCode] != 200) {
+    return false;
+  }
+  NSString* script = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+  return script != nil && [script containsString:@"GM_xmlhttpRequest"] &&
+         [script containsString:@"System.import(\"./__entry.js\""];
+}
+
+struct VideoTranslationLifetimeToken {
+  void* owner = nullptr;
+};
 
 }  // namespace
 
 class BrowserWindow::Impl {
  public:
   Impl() {
+    video_translation_lifetime_token_->owner = this;
     [NSWindow setAllowsAutomaticWindowTabbing:NO];
 
     window_ = [[NSWindow alloc] initWithContentRect:InitialWindowFrame()
@@ -555,6 +501,9 @@ class BrowserWindow::Impl {
   }
 
   ~Impl() {
+    video_translation_lifetime_token_->owner = nullptr;
+    [video_translation_script_task_ cancel];
+    video_translation_script_task_ = nil;
     PersistSessionSnapshot();
     [window_ close];
   }
@@ -719,26 +668,31 @@ class BrowserWindow::Impl {
   }
 
   void OpenVideoTranslation() {
-    if (!ShouldShowVideoTranslateButton(tab_manager_.CurrentUrl())) {
+    const std::string target_url = tab_manager_.CurrentUrl();
+    const std::uint64_t target_tab = tab_manager_.ActiveTabIdentity();
+    if (target_tab == 0 || !ShouldShowVideoTranslateButton(target_url)) {
       return;
     }
     if (video_translation_loading_) {
       return;
     }
     if (!video_translation_script_cache_.empty()) {
-      InjectVideoTranslationScript(video_translation_script_cache_);
+      InjectVideoTranslationScript(video_translation_script_cache_, target_tab, target_url);
       return;
     }
 
     video_translation_loading_ = true;
     NSURL* script_url = [NSURL URLWithString:VideoTranslationSourceUrl()];
-    NSURLSessionDataTask* task =
-        [[NSURLSession sharedSession] dataTaskWithURL:script_url
-                                   completionHandler:[this](NSData* data, NSURLResponse* response,
-                                                            NSError* error) {
-                                     (void)response;
+    std::weak_ptr<VideoTranslationLifetimeToken> weak_lifetime =
+        video_translation_lifetime_token_;
+    video_translation_script_task_ =
+        [[NSURLSession sharedSession]
+            dataTaskWithURL:script_url
+          completionHandler:[weak_lifetime, target_tab, target_url](NSData* data,
+                                                                    NSURLResponse* response,
+                                                                    NSError* error) {
                                      std::string loaded_script;
-                                     if (error == nil && [data length] > 0) {
+                                     if (IsValidVideoTranslationScriptResponse(data, response, error)) {
                                        NSString* script = [[NSString alloc] initWithData:data
                                                                                  encoding:NSUTF8StringEncoding];
                                        if (script != nil) {
@@ -748,26 +702,43 @@ class BrowserWindow::Impl {
                                          }
                                        }
                                      }
-                                     dispatch_async(dispatch_get_main_queue(), [this, loaded_script] {
-                                       video_translation_loading_ = false;
-                                       if (loaded_script.empty()) {
-                                         ShowStorageDone(@"Could not load the video translation module.");
+                                     dispatch_async(dispatch_get_main_queue(),
+                                                    [weak_lifetime, target_tab, target_url,
+                                                     loaded_script] {
+                                       std::shared_ptr<VideoTranslationLifetimeToken> lifetime =
+                                           weak_lifetime.lock();
+                                       if (lifetime == nullptr || lifetime->owner == nullptr) {
                                          return;
                                        }
-                                       video_translation_script_cache_ = loaded_script;
-                                       InjectVideoTranslationScript(video_translation_script_cache_);
+                                       auto* owner = static_cast<BrowserWindow::Impl*>(lifetime->owner);
+                                       owner->video_translation_script_task_ = nil;
+                                       owner->video_translation_loading_ = false;
+                                       if (loaded_script.empty()) {
+                                         owner->ShowStorageDone(
+                                             @"Could not load the video translation module.");
+                                         return;
+                                       }
+                                       owner->video_translation_script_cache_ = loaded_script;
+                                       owner->InjectVideoTranslationScript(
+                                           owner->video_translation_script_cache_, target_tab, target_url);
                                      });
                                    }];
-    [task resume];
+    [video_translation_script_task_ resume];
   }
 
-  void InjectVideoTranslationScript(const std::string& script) {
-    if (script.empty()) {
+  void InjectVideoTranslationScript(const std::string& script,
+                                    std::uint64_t target_tab,
+                                    const std::string& expected_url) {
+    if (script.empty() || !ShouldShowVideoTranslateButton(expected_url)) {
       return;
     }
 
     NSString* shim = VideoTranslationShimSource();
     NSString* source = [NSString stringWithUTF8String:script.c_str()];
+    if (shim == nil || source == nil) {
+      ShowStorageDone(@"Could not prepare the video translation module.");
+      return;
+    }
     NSMutableString* wrapped_script = [NSMutableString string];
     [wrapped_script appendString:shim];
     [wrapped_script appendString:@"\n(() => {"];
@@ -776,7 +747,8 @@ class BrowserWindow::Impl {
     [wrapped_script appendString:@"\n"];
     [wrapped_script appendString:source];
     [wrapped_script appendString:@"\n})();"];
-    tab_manager_.EvaluateJavaScriptOnActiveTab(StringFromNSString(wrapped_script));
+    tab_manager_.InjectVideoTranslationOnActiveTab(target_tab, expected_url,
+                                                   StringFromNSString(wrapped_script));
   }
 
   void AddCurrentBookmark() { bookmark_manager_.AddBookmark(tab_manager_.CurrentUrl()); }
@@ -1134,6 +1106,9 @@ class BrowserWindow::Impl {
   bool secure_mode_ = false;
   bool video_translation_loading_ = false;
   std::string video_translation_script_cache_;
+  NSURLSessionDataTask* video_translation_script_task_ = nil;
+  std::shared_ptr<VideoTranslationLifetimeToken> video_translation_lifetime_token_ =
+      std::make_shared<VideoTranslationLifetimeToken>();
 };
 
 BrowserWindow::BrowserWindow() : impl_(std::make_unique<Impl>()) {}
